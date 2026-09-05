@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -5,6 +6,7 @@ import 'dart:math';
 import 'package:cryptography/cryptography.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
@@ -300,20 +302,157 @@ class GeneratorScreen extends StatefulWidget {
   State<GeneratorScreen> createState() => _GeneratorScreenState();
 }
 
-class _GeneratorScreenState extends State<GeneratorScreen> {
+class _GeneratorScreenState extends State<GeneratorScreen>
+    with WidgetsBindingObserver {
   final _random = Random.secure();
+  final _seedController = TextEditingController();
   int _length = 20;
-  bool _symbols = true;
-  late String _password = _makePassword();
+  bool _lowercase = true;
+  bool _uppercase = true;
+  bool _numbers = true;
+  bool _special = true;
+  bool _unique = false;
+  bool _excludeAmbiguous = false;
+  bool _highlight = true;
+  String _seed = '';
+  String _password = '';
+  String? _error;
+  final _trace = <Offset>[];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _password = _makePassword();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // macOS can lose modifier-key state while the window is unfocused.
+      unawaited(HardwareKeyboard.instance.syncKeyboardState());
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _seedController.dispose();
+    super.dispose();
+  }
+
+  String get _pool {
+    final parts = <String>[];
+    if (_lowercase) parts.add('abcdefghijklmnopqrstuvwxyz');
+    if (_uppercase) parts.add('ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    if (_numbers) parts.add('0123456789');
+    if (_special) parts.add('!@#%+=?_-.,:;');
+    final pool = parts.join();
+    if (!_excludeAmbiguous) return pool;
+    return pool
+        .split('')
+        .where((character) => !'0O1Il'.contains(character))
+        .join();
+  }
+
+  int _seedValue() {
+    var value = 2166136261;
+    for (final codeUnit in _seed.codeUnits) {
+      value ^= codeUnit;
+      value = (value * 16777619) & 0x7fffffff;
+    }
+    for (var index = 0; index < _trace.length; index++) {
+      final point = _trace[index];
+      value ^= point.dx.round() + point.dy.round() * 31 + index * 131;
+      value = (value * 16777619) & 0x7fffffff;
+    }
+    return value;
+  }
 
   String _makePassword() {
-    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-    const symbols = '!@#%+=?';
-    final pool = letters + (_symbols ? symbols : '');
-    return List.generate(
-      _length,
-      (_) => pool[_random.nextInt(pool.length)],
-    ).join();
+    final pool = _pool;
+    if (pool.isEmpty || (_unique && _length > pool.length)) return '';
+    final seedValue = _seedValue();
+    final available = pool.split('');
+    return List<String>.generate(_length, (index) {
+      var position = _random.nextInt(_unique ? available.length : pool.length);
+      if (_seed.isNotEmpty || _trace.isNotEmpty) {
+        position =
+            (position + ((seedValue >> (index % 24)) & 0x7fffffff)) %
+            (_unique ? available.length : pool.length);
+      }
+      if (_unique) return available.removeAt(position);
+      return pool[position];
+    }).join();
+  }
+
+  void _regenerate() {
+    if (_pool.isEmpty) {
+      setState(() {
+        _password = '';
+        _error = 'Select at least one character type.';
+      });
+      return;
+    }
+    if (_unique && _length > _pool.length) {
+      setState(() {
+        _password = '';
+        _error =
+            'Unique mode supports up to ${_pool.length} characters with the current filters.';
+      });
+      return;
+    }
+    setState(() {
+      _password = _makePassword();
+      _error = null;
+    });
+  }
+
+  void _resetDefaults() {
+    _seedController.clear();
+    setState(() {
+      _length = 20;
+      _lowercase = true;
+      _uppercase = true;
+      _numbers = true;
+      _special = true;
+      _unique = false;
+      _excludeAmbiguous = false;
+      _highlight = true;
+      _seed = '';
+      _trace.clear();
+      _error = null;
+      _password = _makePassword();
+    });
+  }
+
+  Color _characterColor(String character, BuildContext context) {
+    if (!_highlight) return Theme.of(context).colorScheme.onSurface;
+    if (RegExp(r'[a-z]').hasMatch(character)) return const Color(0xff13795b);
+    if (RegExp(r'[A-Z]').hasMatch(character)) return const Color(0xff1769aa);
+    if (RegExp(r'[0-9]').hasMatch(character)) return const Color(0xffb45309);
+    return const Color(0xffa23e48);
+  }
+
+  TextSpan _passwordSpan(BuildContext context) {
+    final style = Theme.of(context).textTheme.headlineMedium
+        ?.copyWith(fontFamily: 'monospace', letterSpacing: 0);
+    return TextSpan(
+      children: _password
+          .split('')
+          .map(
+            (character) => TextSpan(
+              text: character,
+              style: style?.copyWith(
+                color: _characterColor(character, context),
+              ),
+            ),
+          )
+          .toList(),
+    );
   }
 
   Future<void> _openVault() async {
@@ -324,6 +463,21 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         .push(MaterialPageRoute(builder: (_) => UnlockScreen(store: store)));
   }
 
+  Widget _check(String label, bool value, ValueChanged<bool> onChanged) =>
+      CheckboxListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        value: value,
+        onChanged: (next) {
+          if (next != null) {
+            onChanged(next);
+            _regenerate();
+          }
+        },
+        title: Text(label),
+        controlAffinity: ListTileControlAffinity.leading,
+      );
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -331,54 +485,323 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         onLongPress: _openVault,
         child: const Text('Password Generator'),
       ),
+      actions: [
+        IconButton(
+          tooltip: 'Reset defaults',
+          onPressed: _resetDefaults,
+          icon: const Icon(Icons.restart_alt),
+        ),
+      ],
     ),
-    body: Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 560),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+    body: SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                _password,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineMedium
-                    ?.copyWith(fontFamily: 'monospace'),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Generated password',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 18),
+                      SelectableText.rich(
+                        _passwordSpan(context),
+                        textAlign: TextAlign.center,
+                      ),
+                      if (_error != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          _error!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _password.isEmpty
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      await Clipboard.setData(
+                                        ClipboardData(text: _password),
+                                      );
+                                      if (!mounted) return;
+                                      messenger.showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Password copied'),
+                                        ),
+                                      );
+                                    },
+                              icon: const Icon(Icons.copy),
+                              label: const Text('Copy'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          IconButton.filledTonal(
+                            tooltip: 'Generate',
+                            onPressed: _regenerate,
+                            icon: const Icon(Icons.refresh),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              const SizedBox(height: 28),
-              Text('Length: $_length'),
-              Slider(
-                value: _length.toDouble(),
-                min: 8,
-                max: 64,
-                divisions: 56,
-                label: '$_length',
-                onChanged: (value) => setState(() {
-                  _length = value.round();
-                  _password = _makePassword();
-                }),
+              const SizedBox(height: 14),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Character filters',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final columns = constraints.maxWidth >= 520 ? 2 : 1;
+                          return GridView(
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: columns,
+                                  mainAxisExtent: 48,
+                                  crossAxisSpacing: 12,
+                                  mainAxisSpacing: 2,
+                                ),
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            children: [
+                              _check(
+                                'Lowercase',
+                                _lowercase,
+                                (value) => setState(() => _lowercase = value),
+                              ),
+                              _check(
+                                'Uppercase',
+                                _uppercase,
+                                (value) => setState(() => _uppercase = value),
+                              ),
+                              _check(
+                                'Numbers',
+                                _numbers,
+                                (value) => setState(() => _numbers = value),
+                              ),
+                              _check(
+                                'Special characters',
+                                _special,
+                                (value) => setState(() => _special = value),
+                              ),
+                              _check(
+                                'Unique characters',
+                                _unique,
+                                (value) => setState(() => _unique = value),
+                              ),
+                              _check(
+                                'Exclude ambiguous characters',
+                                _excludeAmbiguous,
+                                (value) =>
+                                    setState(() => _excludeAmbiguous = value),
+                              ),
+                              _check(
+                                'Highlight character types',
+                                _highlight,
+                                (value) => setState(() => _highlight = value),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      Text('Length: $_length'),
+                      Slider(
+                        value: _length.toDouble(),
+                        min: 8,
+                        max: 64,
+                        divisions: 56,
+                        label: '$_length',
+                        onChanged: (value) {
+                          setState(() => _length = value.round());
+                          _regenerate();
+                        },
+                      ),
+                      if (_highlight) ...[
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: 14,
+                          runSpacing: 6,
+                          children: const [
+                            _Legend(
+                              label: 'lowercase',
+                              color: Color(0xff13795b),
+                            ),
+                            _Legend(
+                              label: 'uppercase',
+                              color: Color(0xff1769aa),
+                            ),
+                            _Legend(label: 'numbers', color: Color(0xffb45309)),
+                            _Legend(label: 'special', color: Color(0xffa23e48)),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-              SwitchListTile(
-                value: _symbols,
-                onChanged: (value) => setState(() {
-                  _symbols = value;
-                  _password = _makePassword();
-                }),
-                title: const Text('Include symbols'),
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () => setState(() => _password = _makePassword()),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Generate'),
+              const SizedBox(height: 14),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Additional seed',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _seedController,
+                        onTapOutside: (_) =>
+                            FocusManager.instance.primaryFocus?.unfocus(),
+                        onChanged: (value) {
+                          _seed = value;
+                          _regenerate();
+                        },
+                        decoration: const InputDecoration(
+                          labelText: 'Enter your own seed',
+                          hintText: 'Optional text mixed into generation',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.key_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Or collect mouse / gesture movement',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      MouseRegion(
+                        onHover: (details) =>
+                            setState(() => _trace.add(details.localPosition)),
+                        onExit: (_) => _regenerate(),
+                        child: GestureDetector(
+                          onPanStart: (details) =>
+                              setState(() => _trace.add(details.localPosition)),
+                          onPanUpdate: (details) =>
+                              setState(() => _trace.add(details.localPosition)),
+                          onPanEnd: (_) => _regenerate(),
+                          child: Container(
+                            height: 110,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
+                              border: Border.all(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .outlineVariant,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: CustomPaint(
+                              painter: _TracePainter(
+                                _trace,
+                                Theme.of(context).colorScheme.primary,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  _trace.isEmpty
+                                      ? 'Move or drag here to collect movement'
+                                      : '${_trace.length} points collected',
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: _trace.isEmpty
+                              ? null
+                              : () {
+                                  setState(() => _trace.clear());
+                                  _regenerate();
+                                },
+                          icon: const Icon(Icons.clear),
+                          label: const Text('Clear movement'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
         ),
       ),
     ),
+  );
+}
+
+class _TracePainter extends CustomPainter {
+  const _TracePainter(this.points, this.color);
+  final List<Offset> points;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2) return;
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.65)
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final point in points.skip(1)) {
+      path.lineTo(point.dx, point.dy);
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TracePainter oldDelegate) =>
+      oldDelegate.points != points || oldDelegate.color != color;
+}
+
+class _Legend extends StatelessWidget {
+  const _Legend({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+      const SizedBox(width: 5),
+      Text(label, style: Theme.of(context).textTheme.bodySmall),
+    ],
   );
 }
 
