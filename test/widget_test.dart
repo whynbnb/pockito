@@ -18,4 +18,29 @@ void main() {
     expect(find.text('Copy'), findsOneWidget);
     expect(find.byIcon(Icons.refresh), findsOneWidget);
   });
+
+  testWidgets('changes the shared interface language', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('中文'));
+    await tester.pump();
+
+    expect(find.text('密码生成器'), findsOneWidget);
+    expect(find.text('字符筛选'), findsOneWidget);
+  });
+
+  testWidgets('offers parallel system appearance and language choices', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.byIcon(Icons.tune));
+    await tester.pumpAndSettle();
+
+    expect(find.text('System'), findsNWidgets(2));
+    expect(find.byType(SegmentedButton<ThemeMode>), findsOneWidget);
+    expect(find.byType(SegmentedButton<LocaleMode>), findsOneWidget);
+  });
 }

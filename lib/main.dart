@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -14,23 +13,212 @@ import 'package:path_provider/path_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) {
+    final exception = details.exception;
+    if (exception is AssertionError &&
+        exception.toString().contains(
+          'Attempted to send a key down event when no keys are in keysPressed',
+        )) {
+      return;
+    }
+    FlutterError.presentError(details);
+  };
   runApp(const VaultApp());
 }
 
-class VaultApp extends StatelessWidget {
+String tr(BuildContext context, String english, String chinese) =>
+    AppSettings.of(context).localeMode == LocaleMode.chinese ||
+        (AppSettings.of(context).localeMode == LocaleMode.system &&
+            Localizations.localeOf(context).languageCode == 'zh')
+    ? chinese
+    : english;
+
+enum LocaleMode { english, chinese, system }
+
+class AppSettings extends ChangeNotifier {
+  AppSettings() : _storage = const FlutterSecureStorage();
+  final FlutterSecureStorage _storage;
+  ThemeMode themeMode = ThemeMode.light;
+  LocaleMode localeMode = LocaleMode.english;
+
+  static AppSettings of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_SettingsScope>()!.settings;
+
+  Future<void> load() async {
+    try {
+      final theme = await _storage.read(key: 'ui_theme');
+      final language = await _storage.read(key: 'ui_language');
+      themeMode = theme == 'system'
+          ? ThemeMode.system
+          : (theme == 'dark' ? ThemeMode.dark : ThemeMode.light);
+      localeMode = language == 'system'
+          ? LocaleMode.system
+          : (language == 'zh' ? LocaleMode.chinese : LocaleMode.english);
+      notifyListeners();
+    } catch (_) {
+      // Keep defaults when platform secure storage is unavailable.
+    }
+  }
+
+  Future<void> setTheme(ThemeMode mode) async {
+    themeMode = mode;
+    notifyListeners();
+    try {
+      await _storage.write(
+        key: 'ui_theme',
+        value: switch (mode) {
+          ThemeMode.dark => 'dark',
+          ThemeMode.system => 'system',
+          ThemeMode.light => 'light',
+        },
+      );
+    } catch (_) {}
+  }
+
+  Future<void> setLocaleMode(LocaleMode mode) async {
+    localeMode = mode;
+    notifyListeners();
+    try {
+      await _storage.write(
+        key: 'ui_language',
+        value: switch (mode) {
+          LocaleMode.english => 'en',
+          LocaleMode.chinese => 'zh',
+          LocaleMode.system => 'system',
+        },
+      );
+    } catch (_) {}
+  }
+}
+
+class _SettingsScope extends InheritedNotifier<AppSettings> {
+  const _SettingsScope({required AppSettings settings, required super.child})
+    : settings = settings,
+      super(notifier: settings);
+
+  final AppSettings settings;
+}
+
+class VaultApp extends StatefulWidget {
   const VaultApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
-    title: 'Utility Kit',
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff007c72)),
-      useMaterial3: true,
+  State<VaultApp> createState() => _VaultAppState();
+}
+
+class _VaultAppState extends State<VaultApp> {
+  final _settings = AppSettings();
+
+  @override
+  void initState() {
+    super.initState();
+    _settings.load();
+  }
+
+  @override
+  void dispose() {
+    _settings.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _SettingsScope(
+    settings: _settings,
+    child: AnimatedBuilder(
+      animation: _settings,
+      builder: (context, _) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Utility Kit',
+        themeMode: _settings.themeMode,
+        locale: switch (_settings.localeMode) {
+          LocaleMode.english => const Locale('en'),
+          LocaleMode.chinese => const Locale('zh'),
+          LocaleMode.system => null,
+        },
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff007c72)),
+          useMaterial3: true,
+        ),
+        darkTheme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xff54c7bb),
+            brightness: Brightness.dark,
+          ),
+          useMaterial3: true,
+        ),
+        home: const GeneratorScreen(),
+      ),
     ),
-    home: const GeneratorScreen(),
   );
 }
+
+Future<void> showSettings(BuildContext context) => showModalBottomSheet<void>(
+  context: context,
+  builder: (context) {
+    final settings = AppSettings.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              tr(context, 'Appearance', '外观设置'),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<ThemeMode>(
+              segments: [
+                ButtonSegment(
+                  value: ThemeMode.light,
+                  icon: const Icon(Icons.light_mode_outlined),
+                  label: Text(tr(context, 'Light', '浅色')),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.dark,
+                  icon: const Icon(Icons.dark_mode_outlined),
+                  label: Text(tr(context, 'Dark', '深色')),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.system,
+                  icon: const Icon(Icons.brightness_auto_outlined),
+                  label: Text(tr(context, 'System', '系统')),
+                ),
+              ],
+              selected: {settings.themeMode},
+              onSelectionChanged: (selection) =>
+                  settings.setTheme(selection.first),
+            ),
+            const SizedBox(height: 4),
+            SegmentedButton<LocaleMode>(
+              segments: [
+                ButtonSegment(
+                  value: LocaleMode.english,
+                  icon: const Icon(Icons.translate),
+                  label: const Text('English'),
+                ),
+                ButtonSegment(
+                  value: LocaleMode.chinese,
+                  icon: const Icon(Icons.translate),
+                  label: const Text('中文'),
+                ),
+                ButtonSegment(
+                  value: LocaleMode.system,
+                  icon: const Icon(Icons.language_outlined),
+                  label: Text(tr(context, 'System', '系统')),
+                ),
+              ],
+              selected: {settings.localeMode},
+              onSelectionChanged: (selection) =>
+                  settings.setLocaleMode(selection.first),
+            ),
+          ],
+        ),
+      ),
+    );
+  },
+);
 
 class VaultNote {
   VaultNote({
@@ -303,8 +491,7 @@ class GeneratorScreen extends StatefulWidget {
   State<GeneratorScreen> createState() => _GeneratorScreenState();
 }
 
-class _GeneratorScreenState extends State<GeneratorScreen>
-    with WidgetsBindingObserver {
+class _GeneratorScreenState extends State<GeneratorScreen> {
   final _random = Random.secure();
   final _seedController = TextEditingController();
   int _length = 20;
@@ -331,24 +518,11 @@ class _GeneratorScreenState extends State<GeneratorScreen>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _password = _makePassword();
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      // macOS can lose modifier-key state while the window is unfocused.
-      unawaited(HardwareKeyboard.instance.syncKeyboardState());
-    } else if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      FocusManager.instance.primaryFocus?.unfocus();
-    }
-  }
-
-  @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _seedController.dispose();
     super.dispose();
   }
@@ -402,15 +576,22 @@ class _GeneratorScreenState extends State<GeneratorScreen>
     if (_pool.isEmpty) {
       setState(() {
         _password = '';
-        _error = 'Select at least one character type.';
+        _error = tr(
+          context,
+          'Select at least one character type.',
+          '请至少选择一种字符类型。',
+        );
       });
       return;
     }
     if (_unique && _length > _pool.length) {
       setState(() {
         _password = '';
-        _error =
-            'Unique mode supports up to ${_pool.length} characters with the current filters.';
+        _error = tr(
+          context,
+          'Unique mode supports up to ${_pool.length} characters with the current filters.',
+          '当前筛选条件下，唯一字符模式最多支持 ${_pool.length} 位。',
+        );
       });
       return;
     }
@@ -492,11 +673,16 @@ class _GeneratorScreenState extends State<GeneratorScreen>
     appBar: AppBar(
       title: GestureDetector(
         onLongPress: _openVault,
-        child: const Text('Password Generator'),
+        child: Text(tr(context, 'Password Generator', '密码生成器')),
       ),
       actions: [
         IconButton(
-          tooltip: 'Reset defaults',
+          tooltip: tr(context, 'Appearance and language', '外观和语言'),
+          onPressed: () => showSettings(context),
+          icon: const Icon(Icons.tune),
+        ),
+        IconButton(
+          tooltip: tr(context, 'Reset defaults', '恢复默认设置'),
           onPressed: _resetDefaults,
           icon: const Icon(Icons.restart_alt),
         ),
@@ -517,7 +703,7 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Generated password',
+                        tr(context, 'Generated password', '生成的密码'),
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 18),
@@ -542,6 +728,11 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                               onPressed: _password.isEmpty
                                   ? null
                                   : () async {
+                                      final copiedMessage = tr(
+                                        context,
+                                        'Password copied',
+                                        '密码已复制',
+                                      );
                                       final messenger = ScaffoldMessenger.of(
                                         context,
                                       );
@@ -550,18 +741,16 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                                       );
                                       if (!mounted) return;
                                       messenger.showSnackBar(
-                                        const SnackBar(
-                                          content: Text('Password copied'),
-                                        ),
+                                        SnackBar(content: Text(copiedMessage)),
                                       );
                                     },
                               icon: const Icon(Icons.copy),
-                              label: const Text('Copy'),
+                              label: Text(tr(context, 'Copy', '复制')),
                             ),
                           ),
                           const SizedBox(width: 10),
                           IconButton.filledTonal(
-                            tooltip: 'Generate',
+                            tooltip: tr(context, 'Generate', '生成'),
                             onPressed: _regenerate,
                             icon: const Icon(Icons.refresh),
                           ),
@@ -579,7 +768,7 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Character filters',
+                        tr(context, 'Character filters', '字符筛选'),
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 6),
@@ -598,38 +787,46 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                             physics: const NeverScrollableScrollPhysics(),
                             children: [
                               _check(
-                                'Lowercase',
+                                tr(context, 'Lowercase', '小写字母'),
                                 _lowercase,
                                 (value) => setState(() => _lowercase = value),
                               ),
                               _check(
-                                'Uppercase',
+                                tr(context, 'Uppercase', '大写字母'),
                                 _uppercase,
                                 (value) => setState(() => _uppercase = value),
                               ),
                               _check(
-                                'Numbers',
+                                tr(context, 'Numbers', '数字'),
                                 _numbers,
                                 (value) => setState(() => _numbers = value),
                               ),
                               _check(
-                                'Special characters',
+                                tr(context, 'Special characters', '特殊字符'),
                                 _special,
                                 (value) => setState(() => _special = value),
                               ),
                               _check(
-                                'Unique characters',
+                                tr(context, 'Unique characters', '唯一字符'),
                                 _unique,
                                 (value) => setState(() => _unique = value),
                               ),
                               _check(
-                                'Exclude ambiguous characters',
+                                tr(
+                                  context,
+                                  'Exclude ambiguous characters',
+                                  '排除易混淆字符',
+                                ),
                                 _excludeAmbiguous,
                                 (value) =>
                                     setState(() => _excludeAmbiguous = value),
                               ),
                               _check(
-                                'Highlight character types',
+                                tr(
+                                  context,
+                                  'Highlight character types',
+                                  '高亮字符类型',
+                                ),
                                 _highlight,
                                 (value) => setState(() => _highlight = value),
                               ),
@@ -638,7 +835,7 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                         },
                       ),
                       const SizedBox(height: 6),
-                      Text('Length: $_length'),
+                      Text('${tr(context, 'Length', '长度')}: $_length'),
                       Slider(
                         value: _length.toDouble(),
                         min: 8,
@@ -655,17 +852,23 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                         Wrap(
                           spacing: 14,
                           runSpacing: 6,
-                          children: const [
+                          children: [
                             _Legend(
-                              label: 'lowercase',
+                              label: tr(context, 'lowercase', '小写'),
                               color: Color(0xff13795b),
                             ),
                             _Legend(
-                              label: 'uppercase',
+                              label: tr(context, 'uppercase', '大写'),
                               color: Color(0xff1769aa),
                             ),
-                            _Legend(label: 'numbers', color: Color(0xffb45309)),
-                            _Legend(label: 'special', color: Color(0xffa23e48)),
+                            _Legend(
+                              label: tr(context, 'numbers', '数字'),
+                              color: Color(0xffb45309),
+                            ),
+                            _Legend(
+                              label: tr(context, 'special', '特殊'),
+                              color: Color(0xffa23e48),
+                            ),
                           ],
                         ),
                       ],
@@ -681,7 +884,7 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Additional seed',
+                        tr(context, 'Additional seed', '附加种子'),
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 6),
@@ -693,16 +896,28 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                           _seed = value;
                           _regenerate();
                         },
-                        decoration: const InputDecoration(
-                          labelText: 'Enter your own seed',
-                          hintText: 'Optional text mixed into generation',
+                        decoration: InputDecoration(
+                          labelText: tr(
+                            context,
+                            'Enter your own seed',
+                            '输入自定义种子',
+                          ),
+                          hintText: tr(
+                            context,
+                            'Optional text mixed into generation',
+                            '可选，会参与密码生成',
+                          ),
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.key_outlined),
                         ),
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'Or collect mouse / gesture movement',
+                        tr(
+                          context,
+                          'Or collect mouse / gesture movement',
+                          '或采集鼠标 / 手势轨迹',
+                        ),
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                       const SizedBox(height: 8),
@@ -767,8 +982,12 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                                 child: Center(
                                   child: Text(
                                     _trace.isEmpty
-                                        ? 'Move or drag here to collect movement'
-                                        : '${_trace.length} points collected',
+                                        ? tr(
+                                            context,
+                                            'Move or drag here to collect movement',
+                                            '在此移动或拖动以采集轨迹',
+                                          )
+                                        : '${_trace.length} ${tr(context, 'points collected', '个轨迹点')}',
                                   ),
                                 ),
                               ),
@@ -786,7 +1005,7 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                                   _regenerate();
                                 },
                           icon: const Icon(Icons.clear),
-                          label: const Text('Clear movement'),
+                          label: Text(tr(context, 'Clear movement', '清除轨迹')),
                         ),
                       ),
                     ],
@@ -878,14 +1097,14 @@ class _UnlockScreenState extends State<UnlockScreen> {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Recovery key'),
+            title: Text(tr(context, 'Recovery key', '恢复密钥')),
             content: SelectableText(
-              'Store this offline. It can unlock this vault if your password is lost.\n\n$recovery',
+              '${tr(context, 'Store this offline. It can unlock this vault if your password is lost.', '请离线保存。忘记主密码时，它可以解锁此保险库。')}\n\n$recovery',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('I stored it'),
+                child: Text(tr(context, 'I stored it', '我已保存')),
               ),
             ],
           ),
@@ -904,8 +1123,16 @@ class _UnlockScreenState extends State<UnlockScreen> {
       if (mounted) {
         setState(
           () => _error = creating
-              ? 'Unable to create the encrypted vault. Check secure storage permissions and try again.'
-              : 'Unable to unlock. Check the credential and try again.',
+              ? tr(
+                  context,
+                  'Unable to create the encrypted vault. Check secure storage permissions and try again.',
+                  '无法创建加密保险库，请检查安全存储权限后重试。',
+                )
+              : tr(
+                  context,
+                  'Unable to unlock. Check the credential and try again.',
+                  '无法解锁，请检查凭据后重试。',
+                ),
         );
       }
     } finally {
@@ -930,7 +1157,11 @@ class _UnlockScreenState extends State<UnlockScreen> {
     } catch (_) {
       if (mounted) {
         setState(
-          () => _error = 'Biometric unlock is not available on this device.',
+          () => _error = tr(
+            context,
+            'Biometric unlock is not available on this device.',
+            '此设备无法使用生物识别解锁。',
+          ),
         );
       }
     } finally {
@@ -942,7 +1173,20 @@ class _UnlockScreenState extends State<UnlockScreen> {
   Widget build(BuildContext context) {
     final creating = !widget.store.exists;
     return Scaffold(
-      appBar: AppBar(title: Text(creating ? 'Create vault' : 'Unlock vault')),
+      appBar: AppBar(
+        title: Text(
+          creating
+              ? tr(context, 'Create vault', '创建保险库')
+              : tr(context, 'Unlock vault', '解锁保险库'),
+        ),
+        actions: [
+          IconButton(
+            tooltip: tr(context, 'Appearance and language', '外观和语言'),
+            icon: const Icon(Icons.tune),
+            onPressed: () => showSettings(context),
+          ),
+        ],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 440),
@@ -954,10 +1198,22 @@ class _UnlockScreenState extends State<UnlockScreen> {
               children: [
                 Text(
                   creating
-                      ? 'Create a strong master password. Your notes never leave this device.'
+                      ? tr(
+                          context,
+                          'Create a strong master password. Your notes never leave this device.',
+                          '创建一个强主密码。你的笔记不会离开此设备。',
+                        )
                       : (_recovery
-                            ? 'Enter the recovery key from your offline copy.'
-                            : 'Enter your master password.'),
+                            ? tr(
+                                context,
+                                'Enter the recovery key from your offline copy.',
+                                '请输入你离线保存的恢复密钥。',
+                              )
+                            : tr(
+                                context,
+                                'Enter your master password.',
+                                '请输入主密码。',
+                              )),
                 ),
                 const SizedBox(height: 16),
                 TextField(
@@ -966,7 +1222,9 @@ class _UnlockScreenState extends State<UnlockScreen> {
                   obscureText: !_recovery,
                   onSubmitted: (_) => _submit(),
                   decoration: InputDecoration(
-                    labelText: _recovery ? 'Recovery key' : 'Master password',
+                    labelText: _recovery
+                        ? tr(context, 'Recovery key', '恢复密钥')
+                        : tr(context, 'Master password', '主密码'),
                     errorText: _error,
                     border: const OutlineInputBorder(),
                   ),
@@ -974,13 +1232,17 @@ class _UnlockScreenState extends State<UnlockScreen> {
                 const SizedBox(height: 12),
                 FilledButton(
                   onPressed: _busy ? null : _submit,
-                  child: Text(creating ? 'Create encrypted vault' : 'Unlock'),
+                  child: Text(
+                    creating
+                        ? tr(context, 'Create encrypted vault', '创建加密保险库')
+                        : tr(context, 'Unlock', '解锁'),
+                  ),
                 ),
                 if (!creating) ...[
                   TextButton.icon(
                     onPressed: _busy ? null : _biometric,
                     icon: const Icon(Icons.fingerprint),
-                    label: const Text('Use biometrics'),
+                    label: Text(tr(context, 'Use biometrics', '使用生物识别')),
                   ),
                   TextButton(
                     onPressed: () => setState(() {
@@ -990,8 +1252,12 @@ class _UnlockScreenState extends State<UnlockScreen> {
                     }),
                     child: Text(
                       _recovery
-                          ? 'Use master password'
-                          : 'Use security key / recovery key',
+                          ? tr(context, 'Use master password', '使用主密码')
+                          : tr(
+                              context,
+                              'Use security key / recovery key',
+                              '使用安全密钥 / 恢复密钥',
+                            ),
                     ),
                   ),
                 ],
@@ -1024,17 +1290,22 @@ class _NotesScreenState extends State<NotesScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Private notes'),
+      title: Text(tr(context, 'Private notes', '私密笔记')),
       actions: [
         IconButton(
-          tooltip: 'Lock',
+          tooltip: tr(context, 'Appearance and language', '外观和语言'),
+          icon: const Icon(Icons.tune),
+          onPressed: () => showSettings(context),
+        ),
+        IconButton(
+          tooltip: tr(context, 'Lock', '锁定'),
           icon: const Icon(Icons.lock),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ],
     ),
     body: widget.store.notes.isEmpty
-        ? const Center(child: Text('No notes yet'))
+        ? Center(child: Text(tr(context, 'No notes yet', '还没有笔记')))
         : ListView.separated(
             padding: const EdgeInsets.all(12),
             itemCount: widget.store.notes.length,
@@ -1042,7 +1313,11 @@ class _NotesScreenState extends State<NotesScreen> {
             itemBuilder: (_, index) {
               final note = widget.store.notes[index];
               return ListTile(
-                title: Text(note.title.isEmpty ? 'Untitled' : note.title),
+                title: Text(
+                  note.title.isEmpty
+                      ? tr(context, 'Untitled', '未命名')
+                      : note.title,
+                ),
                 subtitle: Text(
                   note.body,
                   maxLines: 2,
@@ -1057,7 +1332,7 @@ class _NotesScreenState extends State<NotesScreen> {
           ),
     floatingActionButton: FloatingActionButton(
       onPressed: _edit,
-      tooltip: 'New note',
+      tooltip: tr(context, 'New note', '新建笔记'),
       child: const Icon(Icons.add),
     ),
   );
@@ -1117,15 +1392,15 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Note'),
+      title: Text(tr(context, 'Note', '笔记')),
       actions: [
         IconButton(
-          tooltip: 'Add image',
+          tooltip: tr(context, 'Add image', '添加图片'),
           icon: const Icon(Icons.image_outlined),
           onPressed: _image,
         ),
         IconButton(
-          tooltip: 'Save',
+          tooltip: tr(context, 'Save', '保存'),
           icon: const Icon(Icons.save_outlined),
           onPressed: _saving ? null : _save,
         ),
@@ -1137,8 +1412,8 @@ class _EditorScreenState extends State<EditorScreen> {
         children: [
           TextField(
             controller: _title,
-            decoration: const InputDecoration(
-              hintText: 'Title',
+            decoration: InputDecoration(
+              hintText: tr(context, 'Title', '标题'),
               border: InputBorder.none,
             ),
             style: Theme.of(context).textTheme.titleLarge,
@@ -1149,8 +1424,8 @@ class _EditorScreenState extends State<EditorScreen> {
               expands: true,
               maxLines: null,
               textAlignVertical: TextAlignVertical.top,
-              decoration: const InputDecoration(
-                hintText: 'Write privately...',
+              decoration: InputDecoration(
+                hintText: tr(context, 'Write privately...', '在这里私密记录...'),
                 border: InputBorder.none,
               ),
             ),
