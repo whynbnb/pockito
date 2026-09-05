@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -318,6 +319,14 @@ class _GeneratorScreenState extends State<GeneratorScreen>
   String _password = '';
   String? _error;
   final _trace = <Offset>[];
+
+  void _addTracePoint(Offset point) {
+    const maximumTracePoints = 512;
+    if (_trace.length == maximumTracePoints) {
+      _trace.removeAt(0);
+    }
+    _trace.add(point);
+  }
 
   @override
   void initState() {
@@ -698,38 +707,69 @@ class _GeneratorScreenState extends State<GeneratorScreen>
                       ),
                       const SizedBox(height: 8),
                       MouseRegion(
-                        onHover: (details) =>
-                            setState(() => _trace.add(details.localPosition)),
+                        onHover: (details) => setState(
+                          () => _addTracePoint(details.localPosition),
+                        ),
                         onExit: (_) => _regenerate(),
-                        child: GestureDetector(
-                          onPanStart: (details) =>
-                              setState(() => _trace.add(details.localPosition)),
-                          onPanUpdate: (details) =>
-                              setState(() => _trace.add(details.localPosition)),
-                          onPanEnd: (_) => _regenerate(),
-                          child: Container(
-                            height: 110,
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest,
-                              border: Border.all(
+                        child: RawGestureDetector(
+                          // Touch input belongs to entropy collection instead
+                          // of the ancestor scroll view for this pointer.
+                          gestures: {
+                            EagerGestureRecognizer:
+                                GestureRecognizerFactoryWithHandlers<
+                                  EagerGestureRecognizer
+                                >(EagerGestureRecognizer.new, (_) {}),
+                          },
+                          child: Listener(
+                            behavior: HitTestBehavior.opaque,
+                            onPointerDown: (event) {
+                              if (event.kind != PointerDeviceKind.mouse) {
+                                setState(
+                                  () => _addTracePoint(event.localPosition),
+                                );
+                              }
+                            },
+                            onPointerMove: (event) {
+                              if (event.kind != PointerDeviceKind.mouse) {
+                                setState(
+                                  () => _addTracePoint(event.localPosition),
+                                );
+                              }
+                            },
+                            onPointerUp: (event) {
+                              if (event.kind != PointerDeviceKind.mouse) {
+                                _regenerate();
+                              }
+                            },
+                            onPointerCancel: (event) {
+                              if (event.kind != PointerDeviceKind.mouse) {
+                                _regenerate();
+                              }
+                            },
+                            child: Container(
+                              height: 110,
+                              decoration: BoxDecoration(
                                 color: Theme.of(context)
                                     .colorScheme
-                                    .outlineVariant,
+                                    .surfaceContainerHighest,
+                                border: Border.all(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .outlineVariant,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
                               ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: CustomPaint(
-                              painter: _TracePainter(
-                                _trace,
-                                Theme.of(context).colorScheme.primary,
-                              ),
-                              child: Center(
-                                child: Text(
-                                  _trace.isEmpty
-                                      ? 'Move or drag here to collect movement'
-                                      : '${_trace.length} points collected',
+                              child: CustomPaint(
+                                painter: _TracePainter(
+                                  _trace,
+                                  Theme.of(context).colorScheme.primary,
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    _trace.isEmpty
+                                        ? 'Move or drag here to collect movement'
+                                        : '${_trace.length} points collected',
+                                  ),
                                 ),
                               ),
                             ),
