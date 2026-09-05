@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.privateinfo.privacy_vault"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_secure_storage 11.x requires Android API 37 for compilation.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
