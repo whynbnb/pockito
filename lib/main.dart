@@ -319,6 +319,44 @@ Future<void> showAcknowledgements(BuildContext context) => showDialog<void>(
   ),
 );
 
+Future<void> showDoozAcknowledgements(BuildContext context) => showDialog<void>(
+  context: context,
+  builder: (context) => AlertDialog(
+    title: Text(tr(context, 'Acknowledgements', '致谢')),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            tr(
+              context,
+              'The tic-tac-toe game is inspired by the open-source Dooz by yamin8000.',
+              '井字棋小游戏的界面与思路灵感来自 yamin8000 的开源项目 Dooz。',
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            tr(
+              context,
+              'License: GNU General Public License v3.0',
+              '许可证：GNU General Public License v3.0',
+            ),
+          ),
+          const SizedBox(height: 8),
+          const SelectableText('https://github.com/yamin8000/Dooz'),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(tr(context, 'Close', '关闭')),
+      ),
+    ],
+  ),
+);
+
 Future<void> openVault(BuildContext context) async {
   final store = VaultStore();
   await store.initialize();
@@ -2698,6 +2736,11 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
           tooltip: tr(context, 'Restart', '重新开始'),
           onPressed: _restart,
           icon: const Icon(Icons.restart_alt),
+        ),
+        IconButton(
+          tooltip: tr(context, 'Acknowledgements', '致谢'),
+          onPressed: () => showDoozAcknowledgements(context),
+          icon: const Icon(Icons.info_outline),
         ),
       ],
     ),

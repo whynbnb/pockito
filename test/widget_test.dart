@@ -200,6 +200,19 @@ void main() {
     expect(find.text('Total after: 1'), findsOneWidget);
   });
 
+  testWidgets('shows tic tac toe acknowledgements', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Acknowledgements'), findsOneWidget);
+    expect(find.textContaining('open-source Dooz'), findsOneWidget);
+  });
+
   testWidgets('opens the tic tac toe tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
