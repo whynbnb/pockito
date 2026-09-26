@@ -3077,12 +3077,15 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
   final _morseController = TextEditingController();
   late final _player = _TorchBlinkPlayer(_applyTorch);
   bool? _supported;
-  bool _supportsStrength = false;
+  bool _capabilitySupportsStrength = false;
   int _maxStrength = 1;
   int _strength = 1;
   int _periodMs = 500;
   String _morseOutput = '';
+  String? _lastError;
   _FlashMode _mode = _FlashMode.off;
+
+  bool get _supportsStrength => _capabilitySupportsStrength && _maxStrength > 1;
 
   @override
   void initState() {
@@ -3127,25 +3130,42 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
     setState(() {
       _supported = supported;
       _maxStrength = maxStrength < 1 ? 1 : maxStrength;
-      _supportsStrength = supportsStrength && _maxStrength > 1;
+      _capabilitySupportsStrength = supportsStrength;
       _strength = _maxStrength;
     });
   }
 
   Future<void> _applyTorch(bool on) async {
+    await _applyTorchInternal(on);
+  }
+
+  Future<String?> _applyTorchInternal(bool on) async {
     try {
       if (on) {
-        await TorchFlashlight.enableTorchFlashlight().timeout(_torchTimeout);
         if (_supportsStrength) {
+          // turnOnTorchWithStrengthLevel also turns the torch on, so avoid
+          // mixing it with setTorchMode which resets the level.
           await TorchFlashlight.setTorchStrength(_strength)
               .timeout(_torchTimeout);
+        } else {
+          await TorchFlashlight.enableTorchFlashlight().timeout(_torchTimeout);
         }
       } else {
         await TorchFlashlight.disableTorchFlashlight().timeout(_torchTimeout);
       }
-    } catch (_) {
-      // Ignore torch errors on unsupported devices or while the camera is busy.
+      return null;
+    } catch (error) {
+      return error.toString();
     }
+  }
+
+  void _runTorchAction(bool on) {
+    unawaited(
+      _applyTorchInternal(on).then((error) {
+        if (!mounted) return;
+        setState(() => _lastError = error);
+      }),
+    );
   }
 
   void _setMode(_FlashMode mode) {
@@ -3154,7 +3174,7 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
       setState(() => _mode = _FlashMode.off);
     } else if (mode == _FlashMode.steady) {
       setState(() => _mode = _FlashMode.steady);
-      unawaited(_applyTorch(true));
+      _runTorchAction(true);
     } else if (mode == _FlashMode.sos) {
       setState(() => _mode = _FlashMode.sos);
       _player.start(morseBlinkPattern(textToMorse('SOS')), repeat: true);
@@ -3179,7 +3199,7 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
 
   void _changeStrength(double value) {
     setState(() => _strength = value.round());
-    if (_mode == _FlashMode.steady) unawaited(_applyTorch(true));
+    if (_mode == _FlashMode.steady) _runTorchAction(true);
   }
 
   void _changePeriod(double value) {
@@ -3198,29 +3218,54 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
           : theme.colorScheme.errorContainer,
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              supported
-                  ? Icons.flashlight_on_outlined
-                  : Icons.flashlight_off_outlined,
+            Row(
+              children: [
+                Icon(
+                  supported
+                      ? Icons.flashlight_on_outlined
+                      : Icons.flashlight_off_outlined,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    supported
+                        ? tr(
+                            context,
+                            'Flashlight detected on this device.',
+                            '已检测到本机手电筒。',
+                          )
+                        : tr(
+                            context,
+                            'No flashlight detected on this device. Torch controls are unavailable; you can still convert text to Morse code below.',
+                            '未检测到本机手电筒。无法控制闪光灯，但仍可在下方把文字转换为摩尔斯电码。',
+                          ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                supported
-                    ? tr(
-                        context,
-                        'Flashlight detected on this device.',
-                        '已检测到本机手电筒。',
-                      )
-                    : tr(
-                        context,
-                        'No flashlight detected on this device. Torch controls are unavailable; you can still convert text to Morse code below.',
-                        '未检测到本机手电筒。无法控制闪光灯，但仍可在下方把文字转换为摩尔斯电码。',
-                      ),
+            if (supported) ...[
+              const SizedBox(height: 8),
+              Text(
+                tr(
+                  context,
+                  'Platform: ${Platform.operatingSystem} • brightness: ${_capabilitySupportsStrength ? 'reported' : 'not reported'} • max level: $_maxStrength',
+                  '平台：${Platform.operatingSystem} • 亮度支持：${_capabilitySupportsStrength ? '已报告' : '未报告'} • 最大级别：$_maxStrength',
+                ),
+                style: theme.textTheme.bodySmall,
               ),
-            ),
+              if (_lastError != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  tr(context, 'Last error: $_lastError', '最近错误：$_lastError'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ],
+            ],
           ],
         ),
       ),
@@ -3292,11 +3337,17 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
             ] else ...[
               const SizedBox(height: 12),
               Text(
-                tr(
-                  context,
-                  'Brightness levels are not supported on this device (requires Android 13+ or iOS 14+).',
-                  '本机不支持亮度级别（需要 Android 13+ 或 iOS 14+）。',
-                ),
+                _capabilitySupportsStrength
+                    ? tr(
+                        context,
+                        'This device reports a single brightness level, so the torch can only be on or off.',
+                        '本机仅报告单一亮度级别，手电筒只能开或关。',
+                      )
+                    : tr(
+                        context,
+                        'Brightness control requires Android 13+ or iOS 14+.',
+                        '亮度控制需要 Android 13+ 或 iOS 14+。',
+                      ),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
