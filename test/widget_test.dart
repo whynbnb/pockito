@@ -50,8 +50,25 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('System'), findsNWidgets(2));
-    expect(find.byType(SegmentedButton<ThemeMode>), findsOneWidget);
-    expect(find.byType(SegmentedButton<LocaleMode>), findsOneWidget);
+    final themeButton = tester.widget<SegmentedButton<ThemeMode>>(
+      find.byType(SegmentedButton<ThemeMode>),
+    );
+    final localeButton = tester.widget<SegmentedButton<LocaleMode>>(
+      find.byType(SegmentedButton<LocaleMode>),
+    );
+    expect(themeButton.selected, {ThemeMode.system});
+    expect(localeButton.selected, {LocaleMode.system});
+  });
+
+  testWidgets('follows the system language when set to System', (tester) async {
+    tester.platformDispatcher.localesTestValue = const [Locale('zh', 'CN')];
+    addTearDown(tester.platformDispatcher.clearLocalesTestValue);
+
+    await tester.pumpWidget(const VaultApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('密码生成器'), findsOneWidget);
+    expect(find.text('Password Generator'), findsNothing);
   });
 
   testWidgets('counts custom events with the +1 tool', (tester) async {

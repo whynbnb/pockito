@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
@@ -87,8 +88,8 @@ class AppSettings extends ChangeNotifier {
   AppSettings({LocalPreferences? preferences})
     : _preferences = preferences ?? LocalPreferences();
   final LocalPreferences _preferences;
-  ThemeMode themeMode = ThemeMode.light;
-  LocaleMode localeMode = LocaleMode.english;
+  ThemeMode themeMode = ThemeMode.system;
+  LocaleMode localeMode = LocaleMode.system;
 
   static AppSettings of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_SettingsScope>()!.settings;
@@ -97,12 +98,20 @@ class AppSettings extends ChangeNotifier {
     try {
       final theme = await _preferences.getString('ui_theme');
       final language = await _preferences.getString('ui_language');
-      themeMode = theme == 'system'
-          ? ThemeMode.system
-          : (theme == 'dark' ? ThemeMode.dark : ThemeMode.light);
-      localeMode = language == 'system'
-          ? LocaleMode.system
-          : (language == 'zh' ? LocaleMode.chinese : LocaleMode.english);
+      if (theme != null) {
+        themeMode = switch (theme) {
+          'dark' => ThemeMode.dark,
+          'light' => ThemeMode.light,
+          _ => ThemeMode.system,
+        };
+      }
+      if (language != null) {
+        localeMode = switch (language) {
+          'zh' => LocaleMode.chinese,
+          'en' => LocaleMode.english,
+          _ => LocaleMode.system,
+        };
+      }
       notifyListeners();
     } catch (_) {
       // Keep defaults when local storage is unavailable.
@@ -173,6 +182,12 @@ class _VaultAppState extends State<VaultApp> {
         debugShowCheckedModeBanner: false,
         title: 'Utility Kit',
         themeMode: _settings.themeMode,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+        ],
+        supportedLocales: const [Locale('en'), Locale('zh')],
         locale: switch (_settings.localeMode) {
           LocaleMode.english => const Locale('en'),
           LocaleMode.chinese => const Locale('zh'),
@@ -214,6 +229,11 @@ Future<void> showSettings(BuildContext context) => showModalBottomSheet<void>(
             SegmentedButton<ThemeMode>(
               segments: [
                 ButtonSegment(
+                  value: ThemeMode.system,
+                  icon: const Icon(Icons.brightness_auto_outlined),
+                  label: Text(tr(context, 'System', '系统')),
+                ),
+                ButtonSegment(
                   value: ThemeMode.light,
                   icon: const Icon(Icons.light_mode_outlined),
                   label: Text(tr(context, 'Light', '浅色')),
@@ -222,11 +242,6 @@ Future<void> showSettings(BuildContext context) => showModalBottomSheet<void>(
                   value: ThemeMode.dark,
                   icon: const Icon(Icons.dark_mode_outlined),
                   label: Text(tr(context, 'Dark', '深色')),
-                ),
-                ButtonSegment(
-                  value: ThemeMode.system,
-                  icon: const Icon(Icons.brightness_auto_outlined),
-                  label: Text(tr(context, 'System', '系统')),
                 ),
               ],
               selected: {settings.themeMode},
@@ -237,6 +252,11 @@ Future<void> showSettings(BuildContext context) => showModalBottomSheet<void>(
             SegmentedButton<LocaleMode>(
               segments: [
                 ButtonSegment(
+                  value: LocaleMode.system,
+                  icon: const Icon(Icons.language_outlined),
+                  label: Text(tr(context, 'System', '系统')),
+                ),
+                ButtonSegment(
                   value: LocaleMode.english,
                   icon: const Icon(Icons.translate),
                   label: const Text('English'),
@@ -245,11 +265,6 @@ Future<void> showSettings(BuildContext context) => showModalBottomSheet<void>(
                   value: LocaleMode.chinese,
                   icon: const Icon(Icons.translate),
                   label: const Text('中文'),
-                ),
-                ButtonSegment(
-                  value: LocaleMode.system,
-                  icon: const Icon(Icons.language_outlined),
-                  label: Text(tr(context, 'System', '系统')),
                 ),
               ],
               selected: {settings.localeMode},
