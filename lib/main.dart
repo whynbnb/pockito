@@ -278,6 +278,46 @@ Future<void> showSettings(BuildContext context) => showModalBottomSheet<void>(
   },
 );
 
+Future<void> showAcknowledgements(BuildContext context) => showDialog<void>(
+  context: context,
+  builder: (context) => AlertDialog(
+    title: Text(tr(context, 'Acknowledgements', '致谢')),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            tr(
+              context,
+              'The password generator is inspired by the open-source Password Generator by Vectura Games.',
+              '密码生成器的界面与功能灵感来自 Vectura Games 的开源项目 Password Generator。',
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            tr(
+              context,
+              'License: Apache License 2.0',
+              '许可证：Apache License 2.0',
+            ),
+          ),
+          const SizedBox(height: 8),
+          const SelectableText(
+            'https://gitlab.com/vecturagames/passwordgenerator',
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(tr(context, 'Close', '关闭')),
+      ),
+    ],
+  ),
+);
+
 Future<void> openVault(BuildContext context) async {
   final store = VaultStore();
   await store.initialize();
@@ -1889,6 +1929,11 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           tooltip: tr(context, 'Reset defaults', '恢复默认设置'),
           onPressed: _resetDefaults,
           icon: const Icon(Icons.restart_alt),
+        ),
+        IconButton(
+          tooltip: tr(context, 'Acknowledgements', '致谢'),
+          onPressed: () => showAcknowledgements(context),
+          icon: const Icon(Icons.info_outline),
         ),
       ],
     ),

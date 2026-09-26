@@ -29,6 +29,18 @@ void main() {
     expect(find.byIcon(Icons.refresh), findsOneWidget);
   });
 
+  testWidgets('shows password generator acknowledgements', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Password Generator'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Acknowledgements'), findsOneWidget);
+    expect(find.textContaining('Vectura Games'), findsOneWidget);
+  });
+
   testWidgets('changes the shared interface language', (tester) async {
     await tester.pumpWidget(const VaultApp());
 

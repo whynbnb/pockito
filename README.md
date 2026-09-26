@@ -40,3 +40,7 @@ flutter run -d macos
 ```
 
 使用 `flutter devices` 查看已配置的 Android、iOS、Windows、macOS 和 Linux 设备。Web 平台没有加入工程目标。
+
+## 致谢
+
+密码生成器的界面与功能灵感来自 Vectura Games 的开源项目 [Password Generator](https://gitlab.com/vecturagames/passwordgenerator)（Apache License 2.0）。应用内密码生成器页面的信息按钮可查看该致谢。
