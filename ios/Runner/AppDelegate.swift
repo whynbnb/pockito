@@ -79,12 +79,9 @@ final class FlashlightChannel {
       try device.lockForConfiguration()
       defer { device.unlockForConfiguration() }
       if on {
-        if let strength = strength, strength > 1 {
+        if let strength = strength, strength > 0 {
           let maxLevel = Float(10)
-          let level = max(
-            AVCaptureDevice.minAvailableTorchLevel,
-            min(1.0, Float(strength) / maxLevel)
-          )
+          let level = max(Float(0.01), min(1.0, Float(strength) / maxLevel))
           try device.setTorchModeOn(level: level)
         } else {
           try device.setTorchModeOn(level: AVCaptureDevice.maxAvailableTorchLevel)
