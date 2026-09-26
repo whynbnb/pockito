@@ -54,6 +54,8 @@ final class FlashlightChannel {
       } else {
         result(0)
       }
+    case "isTorchOn":
+      result(device?.isTorchActive ?? false)
     case "setTorch":
       let arguments = call.arguments as? [String: Any]
       let on = arguments?["on"] as? Bool ?? false

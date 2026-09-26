@@ -2923,6 +2923,9 @@ class _FlashlightChannel {
   static Future<int> maxStrength() async =>
       await _channel.invokeMethod<int>('getMaxStrength') ?? 0;
 
+  static Future<bool> isTorchOn() async =>
+      await _channel.invokeMethod<bool>('isTorchOn') ?? false;
+
   static Future<void> setTorch({required bool on, int? strength}) {
     final arguments = <String, Object?>{'on': on};
     if (strength != null) arguments['strength'] = strength;
@@ -3087,7 +3090,8 @@ class FlashlightScreen extends StatefulWidget {
   State<FlashlightScreen> createState() => _FlashlightScreenState();
 }
 
-class _FlashlightScreenState extends State<FlashlightScreen> {
+class _FlashlightScreenState extends State<FlashlightScreen>
+    with WidgetsBindingObserver {
   static const _torchTimeout = Duration(seconds: 2);
   final _morseController = TextEditingController();
   late final _player = _TorchBlinkPlayer(_applyTorch);
@@ -3103,6 +3107,7 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _player.onDone = () {
       if (mounted) setState(() => _mode = _FlashMode.off);
     };
@@ -3111,10 +3116,51 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _player.dispose();
     unawaited(_FlashlightChannel.setTorch(on: false).catchError((_) {}));
     _morseController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      _syncWithHardware();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _stopBlinkForBackground();
+    }
+  }
+
+  Future<void> _syncWithHardware() async {
+    if (_supported != true) return;
+    bool actualOn;
+    try {
+      actualOn = await _FlashlightChannel.isTorchOn().timeout(_torchTimeout);
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      if (_mode == _FlashMode.steady) {
+        if (!actualOn) _mode = _FlashMode.off;
+      } else if (_mode == _FlashMode.off && actualOn) {
+        _mode = _FlashMode.steady;
+      }
+    });
+  }
+
+  void _stopBlinkForBackground() {
+    // Blink patterns rely on Dart timers, which the OS suspends while the app
+    // is in the background, so stop them and leave the torch off.
+    if (_mode == _FlashMode.sos ||
+        _mode == _FlashMode.periodic ||
+        _mode == _FlashMode.morse) {
+      _player.stop();
+      setState(() => _mode = _FlashMode.off);
+    }
   }
 
   Future<void> _checkSupport() async {

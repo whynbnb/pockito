@@ -4,6 +4,8 @@ import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -11,12 +13,25 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private lateinit var cameraManager: CameraManager
     private var torchCameraId: String? = null
+    private var torchOn = false
+
+    private val torchCallback =
+        object : CameraManager.TorchCallback() {
+            override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+                if (cameraId == torchCameraId) torchOn = enabled
+            }
+
+            override fun onTorchModeUnavailable(cameraId: String) {
+                if (cameraId == torchCameraId) torchOn = false
+            }
+        }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         torchCameraId = findTorchCameraId()
+        cameraManager.registerTorchCallback(torchCallback, Handler(Looper.getMainLooper()))
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -25,6 +40,7 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "isAvailable" -> result.success(torchCameraId != null)
                 "getMaxStrength" -> result.success(maxTorchStrength())
+                "isTorchOn" -> result.success(torchOn)
                 "setTorch" -> {
                     val on = call.argument<Boolean>("on") ?: false
                     val strength = call.argument<Int>("strength")
@@ -38,6 +54,13 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onDestroy() {
+        if (::cameraManager.isInitialized) {
+            cameraManager.unregisterTorchCallback(torchCallback)
+        }
+        super.onDestroy()
     }
 
     private fun findTorchCameraId(): String? {
@@ -66,15 +89,18 @@ class MainActivity : FlutterActivity() {
         val id = torchCameraId ?: throw IllegalStateException("No torch camera")
         if (!on) {
             cameraManager.setTorchMode(id, false)
+            torchOn = false
             return
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && strength != null) {
             val max = maxTorchStrength()
             if (max > 1) {
                 cameraManager.turnOnTorchWithStrengthLevel(id, strength.coerceIn(1, max))
+                torchOn = true
                 return
             }
         }
         cameraManager.setTorchMode(id, true)
+        torchOn = true
     }
 }
