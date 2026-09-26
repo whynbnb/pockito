@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -385,6 +386,17 @@ class HomeScreen extends StatelessWidget {
                 '在 Base16、Base32、Base58 和 Base64 之间编解码。',
               ),
               onTap: () => _open(context, const BaseCodecScreen()),
+            ),
+            const SizedBox(height: 12),
+            _ToolTile(
+              icon: Icons.grid_view_rounded,
+              title: tr(context, '2048', '2048'),
+              subtitle: tr(
+                context,
+                'Slide the tiles and merge them to reach 2048.',
+                '滑动方块并合并，合成 2048。',
+              ),
+              onTap: () => _open(context, const Game2048Screen()),
             ),
           ],
         ),
@@ -1464,6 +1476,408 @@ class _BaseCodecScreenState extends State<BaseCodecScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+enum Direction2048 { up, down, left, right }
+
+class Game2048 {
+  Game2048({Random? random})
+    : this.withCells(List<int>.filled(size * size, 0), random: random);
+
+  Game2048.withCells(this.cells, {Random? random})
+    : _random = random ?? Random();
+
+  static const int size = 4;
+  final List<int> cells;
+  final Random _random;
+  int score = 0;
+
+  void reset() {
+    for (var index = 0; index < cells.length; index++) {
+      cells[index] = 0;
+    }
+    score = 0;
+    _spawn();
+    _spawn();
+  }
+
+  bool get hasMoves {
+    for (var index = 0; index < cells.length; index++) {
+      if (cells[index] == 0) return true;
+      final row = index ~/ size;
+      final column = index % size;
+      if (column + 1 < size && cells[index] == cells[index + 1]) {
+        return true;
+      }
+      if (row + 1 < size && cells[index] == cells[index + size]) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool move(Direction2048 direction, {bool spawn = true}) {
+    final before = List<int>.of(cells);
+    var gained = 0;
+    for (final line in _lines(direction)) {
+      final values = line.map((index) => cells[index]).toList();
+      final collapsed = _collapse(values, (value) => gained += value);
+      for (var index = 0; index < line.length; index++) {
+        cells[line[index]] = collapsed[index];
+      }
+    }
+    if (listEquals(before, cells)) return false;
+    score += gained;
+    if (spawn) _spawn();
+    return true;
+  }
+
+  List<List<int>> _lines(Direction2048 direction) {
+    final lines = <List<int>>[];
+    for (var i = 0; i < size; i++) {
+      final line = <int>[];
+      for (var j = 0; j < size; j++) {
+        line.add(switch (direction) {
+          Direction2048.left => i * size + j,
+          Direction2048.right => i * size + (size - 1 - j),
+          Direction2048.up => j * size + i,
+          Direction2048.down => (size - 1 - j) * size + i,
+        });
+      }
+      lines.add(line);
+    }
+    return lines;
+  }
+
+  List<int> _collapse(List<int> values, void Function(int) onMerge) {
+    final compact = values.where((value) => value != 0).toList();
+    final merged = <int>[];
+    var index = 0;
+    while (index < compact.length) {
+      if (index + 1 < compact.length && compact[index] == compact[index + 1]) {
+        final value = compact[index] * 2;
+        merged.add(value);
+        onMerge(value);
+        index += 2;
+      } else {
+        merged.add(compact[index]);
+        index += 1;
+      }
+    }
+    while (merged.length < values.length) {
+      merged.add(0);
+    }
+    return merged;
+  }
+
+  void _spawn() {
+    final empty = <int>[];
+    for (var index = 0; index < cells.length; index++) {
+      if (cells[index] == 0) empty.add(index);
+    }
+    if (empty.isEmpty) return;
+    final index = empty[_random.nextInt(empty.length)];
+    cells[index] = _random.nextInt(10) == 0 ? 4 : 2;
+  }
+}
+
+Color _tile2048Color(int value) => switch (value) {
+  2 => const Color(0xffeee4da),
+  4 => const Color(0xffede0c8),
+  8 => const Color(0xfff2b179),
+  16 => const Color(0xfff59563),
+  32 => const Color(0xfff67c5f),
+  64 => const Color(0xfff65e3b),
+  128 => const Color(0xffedcf72),
+  256 => const Color(0xffedcc61),
+  512 => const Color(0xffedc850),
+  1024 => const Color(0xffedc53f),
+  2048 => const Color(0xffedc22e),
+  _ => const Color(0xff3c3a32),
+};
+
+double _tile2048FontSize(int value) {
+  if (value < 100) return 30;
+  if (value < 1000) return 26;
+  if (value < 10000) return 20;
+  return 16;
+}
+
+class Game2048Screen extends StatefulWidget {
+  const Game2048Screen({super.key});
+  @override
+  State<Game2048Screen> createState() => _Game2048ScreenState();
+}
+
+class _Game2048ScreenState extends State<Game2048Screen> {
+  final _game = Game2048();
+  final _preferences = LocalPreferences();
+  final _focusNode = FocusNode();
+  Offset _dragDelta = Offset.zero;
+  int _best = 0;
+  bool _wonShown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _game.reset();
+    _loadBest();
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadBest() async {
+    final stored = await _preferences.getString('game_2048_best');
+    final value = int.tryParse(stored ?? '');
+    if (!mounted || value == null) return;
+    setState(() => _best = value);
+  }
+
+  void _move(Direction2048 direction) {
+    if (!_game.move(direction)) return;
+    setState(() {
+      if (_game.score > _best) {
+        _best = _game.score;
+        unawaited(_preferences.setString('game_2048_best', '$_best'));
+      }
+    });
+    if (!_wonShown && _game.cells.any((value) => value >= 2048)) {
+      _wonShown = true;
+      _showWin();
+    }
+  }
+
+  Future<void> _showWin() => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(tr(context, 'You win!', '你赢了！')),
+      content: Text(tr(context, 'You reached 2048.', '你合成了 2048。')),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(tr(context, 'Keep going', '继续')),
+        ),
+      ],
+    ),
+  );
+
+  void _restart() {
+    setState(() {
+      _game.reset();
+      _wonShown = false;
+    });
+    _focusNode.requestFocus();
+  }
+
+  void _endDrag() {
+    final delta = _dragDelta;
+    _dragDelta = Offset.zero;
+    if (delta.distance < 24) return;
+    if (delta.dx.abs() > delta.dy.abs()) {
+      _move(delta.dx > 0 ? Direction2048.right : Direction2048.left);
+    } else {
+      _move(delta.dy > 0 ? Direction2048.down : Direction2048.up);
+    }
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final direction = switch (event.logicalKey) {
+      LogicalKeyboardKey.arrowUp || LogicalKeyboardKey.keyW => Direction2048.up,
+      LogicalKeyboardKey.arrowDown ||
+      LogicalKeyboardKey.keyS => Direction2048.down,
+      LogicalKeyboardKey.arrowLeft ||
+      LogicalKeyboardKey.keyA => Direction2048.left,
+      LogicalKeyboardKey.arrowRight ||
+      LogicalKeyboardKey.keyD => Direction2048.right,
+      _ => null,
+    };
+    if (direction == null) return KeyEventResult.ignored;
+    _move(direction);
+    return KeyEventResult.handled;
+  }
+
+  Widget _scoreBox(BuildContext context, String label, int value) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          Text(label, style: theme.textTheme.labelMedium),
+          Text(
+            '$value',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _board(BuildContext context, double side) => SizedBox(
+    width: side,
+    height: side,
+    child: Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: GridView.count(
+        crossAxisCount: Game2048.size,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        children: [for (final value in _game.cells) _Tile2048(value: value)],
+      ),
+    ),
+  );
+
+  Widget _gameOver(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.55),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    alignment: Alignment.center,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          tr(context, 'Game over', '游戏结束'),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(
+          onPressed: _restart,
+          child: Text(tr(context, 'Try again', '再来一局')),
+        ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(tr(context, '2048', '2048')),
+      actions: [
+        IconButton(
+          tooltip: tr(context, 'Restart', '重新开始'),
+          onPressed: _restart,
+          icon: const Icon(Icons.restart_alt),
+        ),
+      ],
+    ),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Focus(
+            focusNode: _focusNode,
+            autofocus: true,
+            onKeyEvent: _onKey,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final side = min(
+                  constraints.maxWidth,
+                  (constraints.maxHeight - 128).clamp(160.0, 480.0),
+                );
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        _scoreBox(
+                          context,
+                          tr(context, 'Score', '得分'),
+                          _game.score,
+                        ),
+                        const SizedBox(width: 8),
+                        _scoreBox(context, tr(context, 'Best', '最高'), _best),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _focusNode.requestFocus(),
+                      onPanStart: (_) => _dragDelta = Offset.zero,
+                      onPanUpdate: (details) => _dragDelta += details.delta,
+                      onPanEnd: (_) => _endDrag(),
+                      child: Stack(
+                        children: [
+                          _board(context, side),
+                          if (!_game.hasMoves)
+                            Positioned.fill(child: _gameOver(context)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      tr(
+                        context,
+                        'Use arrow keys, WASD or swipe to move.',
+                        '使用方向键、WASD 或滑动来移动。',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _Tile2048 extends StatelessWidget {
+  const _Tile2048({required this.value});
+  final int value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (value == 0) {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(8),
+        ),
+      );
+    }
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      decoration: BoxDecoration(
+        color: _tile2048Color(value),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '$value',
+        style: TextStyle(
+          color: value <= 4 ? const Color(0xff776e65) : Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: _tile2048FontSize(value),
         ),
       ),
     );

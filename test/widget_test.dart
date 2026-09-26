@@ -96,6 +96,17 @@ void main() {
     expect(find.text('SGVsbG8='), findsOneWidget);
   });
 
+  testWidgets('opens the 2048 tool', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('2048'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Score'), findsOneWidget);
+    expect(find.text('Best'), findsOneWidget);
+    expect(find.byType(Game2048Screen), findsOneWidget);
+  });
+
   testWidgets('counts custom events with the +1 tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
