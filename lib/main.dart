@@ -358,6 +358,45 @@ Future<void> showDoozAcknowledgements(BuildContext context) => showDialog<void>(
   ),
 );
 
+Future<void> showFlashdimAcknowledgements(BuildContext context) =>
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Acknowledgements', '致谢')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                tr(
+                  context,
+                  'The flashlight tool is inspired by the open-source FlashDim by cyb3rko.',
+                  '手电筒工具的界面与思路灵感来自 cyb3rko 的开源项目 FlashDim。',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                tr(
+                  context,
+                  'License: Apache License 2.0',
+                  '许可证：Apache License 2.0',
+                ),
+              ),
+              const SizedBox(height: 8),
+              const SelectableText('https://github.com/cyb3rko/flashdim'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr(context, 'Close', '关闭')),
+          ),
+        ],
+      ),
+    );
+
 Future<void> openVault(BuildContext context) async {
   final store = VaultStore();
   await store.initialize();
@@ -3523,6 +3562,11 @@ class _FlashlightScreenState extends State<FlashlightScreen>
                 : () => _setMode(_FlashMode.off),
             icon: const Icon(Icons.stop_circle_outlined),
           ),
+        IconButton(
+          tooltip: tr(context, 'Acknowledgements', '致谢'),
+          onPressed: () => showFlashdimAcknowledgements(context),
+          icon: const Icon(Icons.info_outline),
+        ),
       ],
     ),
     body: Center(

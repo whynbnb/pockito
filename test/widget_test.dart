@@ -216,6 +216,20 @@ void main() {
     expect(find.text('... --- ...'), findsOneWidget);
   });
 
+  testWidgets('shows flashlight acknowledgements', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.scrollUntilVisible(find.text('Flashlight'), 200.0);
+    await tester.tap(find.text('Flashlight'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Acknowledgements'), findsOneWidget);
+    expect(find.textContaining('FlashDim'), findsOneWidget);
+  });
+
   testWidgets('shows tic tac toe acknowledgements', (tester) async {
     await tester.pumpWidget(const VaultApp());
 

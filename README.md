@@ -48,6 +48,10 @@ flutter run -d macos
 
 ## 致谢
 
+> 说明：本项目的代码由 LLM 辅助的 Vibe Coding 方式编写，以下开源项目**仅作为功能与交互上的参考，未参考其源代码**。相关许可证与出处列出以表达致意。
+
 密码生成器的界面与功能灵感来自 Vectura Games 的开源项目 [Password Generator](https://gitlab.com/vecturagames/passwordgenerator)（Apache License 2.0）。应用内密码生成器页面的信息按钮可查看该致谢。
 
 井字棋小游戏的界面与思路灵感来自 yamin8000 的开源项目 [Dooz](https://github.com/yamin8000/Dooz)（GNU General Public License v3.0）。应用内井字棋页面的信息按钮可查看该致谢。
+
+手电筒工具的界面与思路灵感来自 cyb3rko 的开源项目 [FlashDim](https://github.com/cyb3rko/flashdim)（Apache License 2.0）。应用内手电筒页面的信息按钮可查看该致谢。
