@@ -199,4 +199,95 @@ void main() {
     expect(find.text('Counter history'), findsOneWidget);
     expect(find.text('Total after: 1'), findsOneWidget);
   });
+
+  testWidgets('opens the tic tac toe tool', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TicTacToeScreen), findsOneWidget);
+    expect(find.text('Your turn'), findsOneWidget);
+  });
+
+  testWidgets('lets the bot reply in tic tac toe', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('tic-tac-toe-4')));
+    await tester.pump();
+    expect(find.text('X'), findsOneWidget);
+    expect(find.text('Bot is thinking…'), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('O'), findsOneWidget);
+  });
+
+  testWidgets('customizes tic tac toe symbols', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'A');
+    await tester.enterText(fields.at(1), 'B');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('tic-tac-toe-0')));
+    await tester.pump();
+    expect(find.text('A'), findsOneWidget);
+  });
+
+  testWidgets('plays tic tac toe with two players', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Game mode'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Two players'));
+    await tester.pumpAndSettle();
+
+    expect(find.text("X's turn"), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('tic-tac-toe-4')));
+    await tester.pump();
+    expect(find.text("O's turn"), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text("O's turn"), findsOneWidget);
+  });
+
+  testWidgets('keeps the board steady after a tic tac toe result', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Game mode'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Two players'));
+    await tester.pumpAndSettle();
+
+    final before = tester.getSize(find.byKey(const ValueKey('tic-tac-toe-0')));
+
+    for (final index in [0, 3, 1, 4, 2]) {
+      await tester.tap(find.byKey(ValueKey('tic-tac-toe-$index')));
+      await tester.pump();
+    }
+
+    expect(find.text('X wins!'), findsOneWidget);
+    final after = tester.getSize(find.byKey(const ValueKey('tic-tac-toe-0')));
+    expect(after, before);
+  });
 }

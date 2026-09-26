@@ -398,6 +398,17 @@ class HomeScreen extends StatelessWidget {
               ),
               onTap: () => _open(context, const Game2048Screen()),
             ),
+            const SizedBox(height: 12),
+            _ToolTile(
+              icon: Icons.grid_3x3,
+              title: tr(context, 'Tic-Tac-Toe', '井字棋'),
+              subtitle: tr(
+                context,
+                'Play against the bot and customize your marks.',
+                '与电脑对战，并可自定义符号。',
+              ),
+              onTap: () => _open(context, const TicTacToeScreen()),
+            ),
           ],
         ),
       ),
@@ -2156,6 +2167,617 @@ class _Tile2048 extends StatelessWidget {
       ),
     );
   }
+}
+
+enum TicTacToePlayer { x, o }
+
+enum TicTacToeDifficulty {
+  easy('Easy', '简单'),
+  normal('Normal', '普通'),
+  hard('Hard', '困难');
+
+  const TicTacToeDifficulty(this.english, this.chinese);
+  final String english;
+  final String chinese;
+}
+
+enum TicTacToeMode {
+  vsBot('Vs bot', '人机对战'),
+  twoPlayers('Two players', '双人模式');
+
+  const TicTacToeMode(this.english, this.chinese);
+  final String english;
+  final String chinese;
+}
+
+class TicTacToe {
+  TicTacToe({List<TicTacToePlayer?>? cells})
+    : cells = cells == null
+          ? List<TicTacToePlayer?>.filled(9, null)
+          : List<TicTacToePlayer?>.of(cells);
+
+  static const lines = <List<int>>[
+    [0, 1, 2],
+    [3, 4, 5],
+    [6, 7, 8],
+    [0, 3, 6],
+    [1, 4, 7],
+    [2, 5, 8],
+    [0, 4, 8],
+    [2, 4, 6],
+  ];
+
+  final List<TicTacToePlayer?> cells;
+
+  void reset() => cells.fillRange(0, cells.length, null);
+
+  List<int> get emptyCells {
+    final result = <int>[];
+    for (var index = 0; index < cells.length; index++) {
+      if (cells[index] == null) result.add(index);
+    }
+    return result;
+  }
+
+  bool get isFull => emptyCells.isEmpty;
+
+  TicTacToePlayer? get winner {
+    for (final line in lines) {
+      final first = cells[line[0]];
+      if (first != null && cells[line[1]] == first && cells[line[2]] == first) {
+        return first;
+      }
+    }
+    return null;
+  }
+
+  bool get isDraw => winner == null && isFull;
+
+  bool get isOver => winner != null || isFull;
+
+  TicTacToePlayer get currentPlayer {
+    var x = 0;
+    var o = 0;
+    for (final cell in cells) {
+      if (cell == TicTacToePlayer.x) {
+        x++;
+      } else if (cell == TicTacToePlayer.o) {
+        o++;
+      }
+    }
+    return x <= o ? TicTacToePlayer.x : TicTacToePlayer.o;
+  }
+
+  bool play(int index, TicTacToePlayer player) {
+    if (index < 0 || index >= cells.length || cells[index] != null) {
+      return false;
+    }
+    cells[index] = player;
+    return true;
+  }
+}
+
+class TicTacToeBot {
+  static int? chooseMove(
+    List<TicTacToePlayer?> cells, {
+    required TicTacToePlayer self,
+    required TicTacToePlayer opponent,
+    TicTacToeDifficulty difficulty = TicTacToeDifficulty.normal,
+    Random? random,
+  }) {
+    final game = TicTacToe(cells: cells);
+    final empties = game.emptyCells;
+    if (empties.isEmpty) return null;
+    final rng = random ?? Random();
+    if (difficulty == TicTacToeDifficulty.easy) {
+      return empties[rng.nextInt(empties.length)];
+    }
+    if (difficulty == TicTacToeDifficulty.normal) {
+      final winning = _findWinningMove(game, self);
+      if (winning != null) return winning;
+      final blocking = _findWinningMove(game, opponent);
+      if (blocking != null) return blocking;
+      if (game.cells[4] == null) return 4;
+      final corners = [
+        0,
+        2,
+        6,
+        8,
+      ].where((index) => game.cells[index] == null).toList();
+      if (corners.isNotEmpty) return corners[rng.nextInt(corners.length)];
+      return empties[rng.nextInt(empties.length)];
+    }
+    var bestScore = -1000;
+    int? best;
+    for (final index in empties) {
+      game.cells[index] = self;
+      final score = _minimax(game, self, opponent, false, 0);
+      game.cells[index] = null;
+      if (score > bestScore) {
+        bestScore = score;
+        best = index;
+      }
+    }
+    return best;
+  }
+
+  static int? _findWinningMove(TicTacToe game, TicTacToePlayer player) {
+    for (final index in game.emptyCells) {
+      game.cells[index] = player;
+      final wins = game.winner == player;
+      game.cells[index] = null;
+      if (wins) return index;
+    }
+    return null;
+  }
+
+  static int _minimax(
+    TicTacToe game,
+    TicTacToePlayer self,
+    TicTacToePlayer opponent,
+    bool maximizing,
+    int depth,
+  ) {
+    final winner = game.winner;
+    if (winner == self) return 10 - depth;
+    if (winner == opponent) return depth - 10;
+    if (game.isFull) return 0;
+    final empties = game.emptyCells;
+    if (maximizing) {
+      var best = -1000;
+      for (final index in empties) {
+        game.cells[index] = self;
+        best = max(best, _minimax(game, self, opponent, false, depth + 1));
+        game.cells[index] = null;
+      }
+      return best;
+    }
+    var best = 1000;
+    for (final index in empties) {
+      game.cells[index] = opponent;
+      best = min(best, _minimax(game, self, opponent, true, depth + 1));
+      game.cells[index] = null;
+    }
+    return best;
+  }
+}
+
+class TicTacToeScreen extends StatefulWidget {
+  const TicTacToeScreen({super.key});
+  @override
+  State<TicTacToeScreen> createState() => _TicTacToeScreenState();
+}
+
+class _TicTacToeScreenState extends State<TicTacToeScreen> {
+  static const _defaultX = 'X';
+  static const _defaultO = 'O';
+  static const _symbolXKey = 'tic_tac_toe_symbol_x';
+  static const _symbolOKey = 'tic_tac_toe_symbol_o';
+
+  final _game = TicTacToe();
+  final _preferences = LocalPreferences();
+  TicTacToeMode _mode = TicTacToeMode.vsBot;
+  TicTacToeDifficulty _difficulty = TicTacToeDifficulty.normal;
+  String _xSymbol = _defaultX;
+  String _oSymbol = _defaultO;
+  Timer? _botTimer;
+  bool _thinking = false;
+  bool _resultCounted = false;
+  int _wins = 0;
+  int _losses = 0;
+  int _draws = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSymbols();
+  }
+
+  @override
+  void dispose() {
+    _botTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadSymbols() async {
+    final x = await _preferences.getString(_symbolXKey);
+    final o = await _preferences.getString(_symbolOKey);
+    if (!mounted) return;
+    setState(() {
+      if (x != null && x.trim().isNotEmpty) _xSymbol = x;
+      if (o != null && o.trim().isNotEmpty) _oSymbol = o;
+    });
+  }
+
+  void _onCellTap(int index) {
+    if (_thinking || _game.isOver || _game.cells[index] != null) return;
+    final player = _game.currentPlayer;
+    if (_mode == TicTacToeMode.vsBot && player != TicTacToePlayer.x) return;
+    setState(() {
+      _game.play(index, player);
+      _finishIfOver();
+    });
+    if (_game.isOver) return;
+    if (_mode == TicTacToeMode.vsBot) _scheduleBot();
+  }
+
+  void _changeMode(TicTacToeMode mode) {
+    if (mode == _mode) return;
+    _botTimer?.cancel();
+    setState(() {
+      _mode = mode;
+      _game.reset();
+      _thinking = false;
+      _resultCounted = false;
+    });
+  }
+
+  void _scheduleBot() {
+    _botTimer?.cancel();
+    setState(() => _thinking = true);
+    _botTimer = Timer(const Duration(milliseconds: 280), () {
+      if (!mounted) return;
+      final move = TicTacToeBot.chooseMove(
+        _game.cells,
+        self: TicTacToePlayer.o,
+        opponent: TicTacToePlayer.x,
+        difficulty: _difficulty,
+      );
+      setState(() {
+        _thinking = false;
+        if (move != null) _game.play(move, TicTacToePlayer.o);
+        _finishIfOver();
+      });
+    });
+  }
+
+  void _finishIfOver() {
+    if (!_game.isOver || _resultCounted) return;
+    _resultCounted = true;
+    final winner = _game.winner;
+    if (winner == TicTacToePlayer.x) {
+      _wins++;
+    } else if (winner == TicTacToePlayer.o) {
+      _losses++;
+    } else {
+      _draws++;
+    }
+  }
+
+  void _restart() {
+    _botTimer?.cancel();
+    setState(() {
+      _game.reset();
+      _thinking = false;
+      _resultCounted = false;
+    });
+  }
+
+  Future<void> _editSymbols() async {
+    final result = await showDialog<(String, String)>(
+      context: context,
+      builder: (_) => _SymbolDialog(x: _xSymbol, o: _oSymbol),
+    );
+    if (result == null || !mounted) return;
+    final x = result.$1.trim().isEmpty ? _defaultX : result.$1.trim();
+    final o = result.$2.trim().isEmpty ? _defaultO : result.$2.trim();
+    if (x == o) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            tr(context, 'Choose two different symbols.', '请选择两个不同的符号。'),
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _xSymbol = x;
+      _oSymbol = o;
+    });
+    await _preferences.setString(_symbolXKey, x);
+    await _preferences.setString(_symbolOKey, o);
+  }
+
+  String _symbolFor(TicTacToePlayer? player) => switch (player) {
+    TicTacToePlayer.x => _xSymbol,
+    TicTacToePlayer.o => _oSymbol,
+    null => '',
+  };
+
+  Color _colorFor(BuildContext context, TicTacToePlayer? player) =>
+      switch (player) {
+        TicTacToePlayer.x => Theme.of(context).colorScheme.primary,
+        TicTacToePlayer.o => Theme.of(context).colorScheme.tertiary,
+        null => Colors.transparent,
+      };
+
+  String _status(BuildContext context) {
+    final winner = _game.winner;
+    if (winner != null) {
+      if (_mode == TicTacToeMode.twoPlayers) {
+        final symbol = _symbolFor(winner);
+        return tr(context, '$symbol wins!', '$symbol 获胜！');
+      }
+      return winner == TicTacToePlayer.x
+          ? tr(context, 'You win!', '你赢了！')
+          : tr(context, 'You lose', '你输了');
+    }
+    if (_game.isFull) return tr(context, 'Draw', '平局');
+    if (_thinking) return tr(context, 'Bot is thinking…', '电脑思考中…');
+    if (_mode == TicTacToeMode.twoPlayers) {
+      final symbol = _symbolFor(_game.currentPlayer);
+      return tr(context, "$symbol's turn", '轮到 $symbol');
+    }
+    return tr(context, 'Your turn', '轮到你');
+  }
+
+  Widget _stat(BuildContext context, String label, int value) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          Text(label, style: theme.textTheme.labelMedium),
+          Text(
+            '$value',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _board(BuildContext context, double side) => SizedBox(
+    width: side,
+    height: side,
+    child: Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          for (var row = 0; row < 3; row++) ...[
+            if (row > 0) const SizedBox(height: 8),
+            Expanded(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var column = 0; column < 3; column++) ...[
+                    if (column > 0) const SizedBox(width: 8),
+                    Expanded(
+                      child: _TicTacToeCell(
+                        key: ValueKey('tic-tac-toe-${row * 3 + column}'),
+                        symbol: _symbolFor(_game.cells[row * 3 + column]),
+                        color: _colorFor(
+                          context,
+                          _game.cells[row * 3 + column],
+                        ),
+                        onTap: () => _onCellTap(row * 3 + column),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(tr(context, 'Tic-Tac-Toe', '井字棋')),
+      actions: [
+        PopupMenuButton<TicTacToeMode>(
+          tooltip: tr(context, 'Game mode', '游戏模式'),
+          initialValue: _mode,
+          onSelected: _changeMode,
+          icon: Icon(
+            _mode == TicTacToeMode.vsBot
+                ? Icons.smart_toy_outlined
+                : Icons.group_outlined,
+          ),
+          itemBuilder: (context) => [
+            for (final mode in TicTacToeMode.values)
+              PopupMenuItem(
+                value: mode,
+                child: Text(tr(context, mode.english, mode.chinese)),
+              ),
+          ],
+        ),
+        if (_mode == TicTacToeMode.vsBot)
+          PopupMenuButton<TicTacToeDifficulty>(
+            tooltip: tr(context, 'Difficulty', '难度'),
+            initialValue: _difficulty,
+            onSelected: (value) => setState(() => _difficulty = value),
+            icon: const Icon(Icons.speed),
+            itemBuilder: (context) => [
+              for (final level in TicTacToeDifficulty.values)
+                PopupMenuItem(
+                  value: level,
+                  child: Text(tr(context, level.english, level.chinese)),
+                ),
+            ],
+          ),
+        IconButton(
+          tooltip: tr(context, 'Customize symbols', '自定义符号'),
+          onPressed: _editSymbols,
+          icon: const Icon(Icons.edit_outlined),
+        ),
+        IconButton(
+          tooltip: tr(context, 'Restart', '重新开始'),
+          onPressed: _restart,
+          icon: const Icon(Icons.restart_alt),
+        ),
+      ],
+    ),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final side = min(
+                constraints.maxWidth,
+                (constraints.maxHeight - 200).clamp(180.0, 360.0),
+              );
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _stat(
+                        context,
+                        _mode == TicTacToeMode.vsBot
+                            ? tr(context, 'Wins', '胜')
+                            : _xSymbol,
+                        _wins,
+                      ),
+                      _stat(context, tr(context, 'Draws', '平'), _draws),
+                      _stat(
+                        context,
+                        _mode == TicTacToeMode.vsBot
+                            ? tr(context, 'Losses', '负')
+                            : _oSymbol,
+                        _losses,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _board(context, side),
+                  const SizedBox(height: 16),
+                  Text(
+                    _status(context),
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  Opacity(
+                    opacity: _game.isOver ? 1 : 0,
+                    child: IgnorePointer(
+                      ignoring: !_game.isOver,
+                      child: FilledButton(
+                        onPressed: _restart,
+                        child: Text(tr(context, 'New game', '新的一局')),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _TicTacToeCell extends StatelessWidget {
+  const _TicTacToeCell({
+    super.key,
+    required this.symbol,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String symbol;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
+    borderRadius: BorderRadius.circular(8),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: symbol.isEmpty
+            ? const SizedBox.expand()
+            : FittedBox(
+                child: Text(
+                  symbol,
+                  style: TextStyle(color: color, fontWeight: FontWeight.bold),
+                ),
+              ),
+      ),
+    ),
+  );
+}
+
+class _SymbolDialog extends StatefulWidget {
+  const _SymbolDialog({required this.x, required this.o});
+
+  final String x;
+  final String o;
+
+  @override
+  State<_SymbolDialog> createState() => _SymbolDialogState();
+}
+
+class _SymbolDialogState extends State<_SymbolDialog> {
+  late final TextEditingController _xController = TextEditingController(
+    text: widget.x,
+  );
+  late final TextEditingController _oController = TextEditingController(
+    text: widget.o,
+  );
+
+  @override
+  void dispose() {
+    _xController.dispose();
+    _oController.dispose();
+    super.dispose();
+  }
+
+  void _submit() =>
+      Navigator.pop(context, (_xController.text, _oController.text));
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(tr(context, 'Customize symbols', '自定义符号')),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: _xController,
+          autofocus: true,
+          maxLength: 2,
+          decoration: InputDecoration(
+            labelText: tr(context, 'Your symbol', '你的符号'),
+          ),
+        ),
+        TextField(
+          controller: _oController,
+          maxLength: 2,
+          decoration: InputDecoration(
+            labelText: tr(context, 'Bot symbol', '电脑符号'),
+          ),
+          onSubmitted: (_) => _submit(),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(tr(context, 'Cancel', '取消')),
+      ),
+      FilledButton(onPressed: _submit, child: Text(tr(context, 'Save', '保存'))),
+    ],
+  );
 }
 
 class VaultNote {
