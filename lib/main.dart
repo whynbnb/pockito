@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -146,7 +147,7 @@ class _VaultAppState extends State<VaultApp> {
           ),
           useMaterial3: true,
         ),
-        home: const GeneratorScreen(),
+        home: const HomeScreen(),
       ),
     ),
   );
@@ -219,6 +220,577 @@ Future<void> showSettings(BuildContext context) => showModalBottomSheet<void>(
     );
   },
 );
+
+Future<void> openVault(BuildContext context) async {
+  final store = VaultStore();
+  await store.initialize();
+  if (!context.mounted) return;
+  await Navigator.of(context)
+      .push(MaterialPageRoute(builder: (_) => UnlockScreen(store: store)));
+}
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  void _open(BuildContext context, Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: GestureDetector(
+        onLongPress: () => openVault(context),
+        child: Text(tr(context, 'Utility Kit', '实用工具集')),
+      ),
+      actions: [
+        IconButton(
+          tooltip: tr(context, 'Appearance and language', '外观和语言'),
+          onPressed: () => showSettings(context),
+          icon: const Icon(Icons.tune),
+        ),
+      ],
+    ),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 720),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+          children: [
+            _ToolTile(
+              icon: Icons.password_outlined,
+              title: tr(context, 'Password Generator', '密码生成器'),
+              subtitle: tr(
+                context,
+                'Create strong passwords with custom filters and seeds.',
+                '使用自定义筛选和种子生成强密码。',
+              ),
+              onTap: () => _open(context, const GeneratorScreen()),
+            ),
+            const SizedBox(height: 12),
+            _ToolTile(
+              icon: Icons.exposure_plus_1_outlined,
+              title: tr(context, '+1 Counter', '+1 计数器'),
+              subtitle: tr(
+                context,
+                'Count custom events with a single tap.',
+                '轻点即可统计自定义事件。',
+              ),
+              onTap: () => _open(context, const CounterScreen()),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _ToolTile extends StatelessWidget {
+  const _ToolTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    clipBehavior: Clip.antiAlias,
+    child: ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      leading: CircleAvatar(
+        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+        child: Icon(icon),
+      ),
+      title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onTap,
+    ),
+  );
+}
+
+class CounterItem {
+  CounterItem({
+    required this.id,
+    required this.name,
+    required this.count,
+    required this.updatedAt,
+  });
+
+  final String id;
+  String name;
+  int count;
+  DateTime updatedAt;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'count': count,
+    'updatedAt': updatedAt.toIso8601String(),
+  };
+
+  factory CounterItem.fromJson(Map<String, dynamic> json) => CounterItem(
+    id: json['id'] as String,
+    name: json['name'] as String? ?? '',
+    count: (json['count'] as num?)?.toInt() ?? 0,
+    updatedAt:
+        DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
+  );
+}
+
+class CounterStore {
+  CounterStore() : _storage = const FlutterSecureStorage();
+  final FlutterSecureStorage _storage;
+  static const _key = 'tool_counters';
+
+  Future<List<CounterItem>> load() async {
+    try {
+      final raw = await _storage.read(key: _key);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return [];
+      return decoded
+          .whereType<Map>()
+          .map(
+            (entry) => CounterItem.fromJson(Map<String, dynamic>.from(entry)),
+          )
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> save(List<CounterItem> items) async {
+    try {
+      await _storage.write(
+        key: _key,
+        value: jsonEncode(items.map((item) => item.toJson()).toList()),
+      );
+    } catch (_) {}
+  }
+}
+
+class _PromptDialog extends StatefulWidget {
+  const _PromptDialog({
+    required this.title,
+    required this.label,
+    this.initial = '',
+    this.hint,
+  });
+
+  final String title;
+  final String label;
+  final String initial;
+  final String? hint;
+
+  @override
+  State<_PromptDialog> createState() => _PromptDialogState();
+}
+
+class _PromptDialogState extends State<_PromptDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.pop(context, _controller.text.trim());
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.title),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      decoration: InputDecoration(
+        labelText: widget.label,
+        hintText: widget.hint,
+      ),
+      onSubmitted: (_) => _submit(),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(tr(context, 'Cancel', '取消')),
+      ),
+      FilledButton(onPressed: _submit, child: Text(tr(context, 'Save', '保存'))),
+    ],
+  );
+}
+
+class CounterScreen extends StatefulWidget {
+  const CounterScreen({super.key});
+  @override
+  State<CounterScreen> createState() => _CounterScreenState();
+}
+
+class _CounterScreenState extends State<CounterScreen> {
+  final _store = CounterStore();
+  final _random = Random.secure();
+  final _items = <CounterItem>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final items = await _store.load();
+    if (!mounted || items.isEmpty) return;
+    setState(() {
+      _items
+        ..clear()
+        ..addAll(items);
+    });
+  }
+
+  void _persist() {
+    unawaited(_store.save(_items));
+  }
+
+  String _newId() =>
+      '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 31)}';
+
+  Future<String?> _promptText({
+    required String title,
+    required String label,
+    String initial = '',
+    String? hint,
+  }) => showDialog<String>(
+    context: context,
+    builder: (context) =>
+        _PromptDialog(title: title, label: label, initial: initial, hint: hint),
+  );
+
+  Future<void> _add() async {
+    final name = await _promptText(
+      title: tr(context, 'New counter', '新建计数器'),
+      label: tr(context, 'Event name', '事件名称'),
+      hint: tr(context, 'e.g. Cups of coffee', '例如：喝了几杯咖啡'),
+    );
+    if (name == null || name.isEmpty) return;
+    setState(() {
+      _items.insert(
+        0,
+        CounterItem(
+          id: _newId(),
+          name: name,
+          count: 0,
+          updatedAt: DateTime.now(),
+        ),
+      );
+    });
+    _persist();
+  }
+
+  void _increment(CounterItem item) {
+    setState(() {
+      item.count += 1;
+      item.updatedAt = DateTime.now();
+    });
+    _persist();
+  }
+
+  void _decrement(CounterItem item) {
+    if (item.count <= 0) return;
+    setState(() {
+      item.count -= 1;
+      item.updatedAt = DateTime.now();
+    });
+    _persist();
+  }
+
+  Future<void> _rename(CounterItem item) async {
+    final name = await _promptText(
+      title: tr(context, 'Rename counter', '重命名计数器'),
+      label: tr(context, 'Event name', '事件名称'),
+      initial: item.name,
+    );
+    if (name == null || name.isEmpty) return;
+    setState(() {
+      item.name = name;
+      item.updatedAt = DateTime.now();
+    });
+    _persist();
+  }
+
+  Future<void> _editValue(CounterItem item) async {
+    final value = await _promptText(
+      title: tr(context, 'Set count', '设置计数'),
+      label: tr(context, 'Count', '计数'),
+      initial: '${item.count}',
+    );
+    if (value == null) return;
+    final parsed = int.tryParse(value);
+    if (parsed == null) return;
+    setState(() {
+      item.count = parsed;
+      item.updatedAt = DateTime.now();
+    });
+    _persist();
+  }
+
+  void _reset(CounterItem item) {
+    setState(() {
+      item.count = 0;
+      item.updatedAt = DateTime.now();
+    });
+    _persist();
+  }
+
+  Future<void> _delete(CounterItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Delete counter', '删除计数器')),
+        content: Text(
+          tr(
+            context,
+            'Delete "${item.name}"? This cannot be undone.',
+            '删除“${item.name}”？此操作无法撤销。',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(tr(context, 'Cancel', '取消')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(tr(context, 'Delete', '删除')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _items.remove(item));
+    _persist();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = _items.fold<int>(0, (sum, item) => sum + item.count);
+    return Scaffold(
+      appBar: AppBar(title: Text(tr(context, '+1 Counter', '+1 计数器'))),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _add,
+        icon: const Icon(Icons.add),
+        label: Text(tr(context, 'New counter', '新建计数器')),
+      ),
+      body: Column(
+        children: [
+          if (_items.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      tr(context, 'Counters', '计数器'),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  Text(
+                    tr(context, 'Total: $total', '总计：$total'),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: _items.isEmpty
+                ? const _EmptyCounters()
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
+                    itemCount: _items.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final item = _items[index];
+                      return _CounterCard(
+                        item: item,
+                        onIncrement: () => _increment(item),
+                        onDecrement: () => _decrement(item),
+                        onRename: () => _rename(item),
+                        onEditValue: () => _editValue(item),
+                        onReset: () => _reset(item),
+                        onDelete: () => _delete(item),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CounterCard extends StatelessWidget {
+  const _CounterCard({
+    required this.item,
+    required this.onIncrement,
+    required this.onDecrement,
+    required this.onRename,
+    required this.onEditValue,
+    required this.onReset,
+    required this.onDelete,
+  });
+
+  final CounterItem item;
+  final VoidCallback onIncrement;
+  final VoidCallback onDecrement;
+  final VoidCallback onRename;
+  final VoidCallback onEditValue;
+  final VoidCallback onReset;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    item.name,
+                    style: theme.textTheme.titleMedium,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: tr(context, 'Counter actions', '计数器操作'),
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'rename':
+                        onRename();
+                      case 'value':
+                        onEditValue();
+                      case 'reset':
+                        onReset();
+                      case 'delete':
+                        onDelete();
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'rename',
+                      child: Text(tr(context, 'Rename', '重命名')),
+                    ),
+                    PopupMenuItem(
+                      value: 'value',
+                      child: Text(tr(context, 'Set count', '设置计数')),
+                    ),
+                    PopupMenuItem(
+                      value: 'reset',
+                      child: Text(tr(context, 'Reset to zero', '归零')),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Text(tr(context, 'Delete', '删除')),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                IconButton.filledTonal(
+                  tooltip: tr(context, 'Decrease by one', '减一'),
+                  onPressed: item.count <= 0 ? null : onDecrement,
+                  icon: const Icon(Icons.remove),
+                ),
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: onIncrement,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(
+                        children: [
+                          Text(
+                            '${item.count}',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.displaySmall?.copyWith(
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                          Text(
+                            tr(context, 'Tap to add one', '轻点加一'),
+                            style: theme.textTheme.labelSmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                IconButton.filled(
+                  tooltip: tr(context, 'Add one', '加一'),
+                  onPressed: onIncrement,
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyCounters extends StatelessWidget {
+  const _EmptyCounters();
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.exposure_plus_1_outlined,
+            size: 56,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            tr(context, 'No counters yet', '还没有计数器'),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            tr(
+              context,
+              'Create a counter for any custom event, then tap to add one.',
+              '为任意自定义事件创建计数器，轻点即可加一。',
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
 class VaultNote {
   VaultNote({
@@ -645,13 +1217,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
     );
   }
 
-  Future<void> _openVault() async {
-    final store = VaultStore();
-    await store.initialize();
-    if (!mounted) return;
-    await Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => UnlockScreen(store: store)));
-  }
+  Future<void> _openVault() => openVault(context);
 
   Widget _check(String label, bool value, ValueChanged<bool> onChanged) =>
       CheckboxListTile(
