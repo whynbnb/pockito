@@ -146,4 +146,28 @@ void main() {
 
     expect(Game2048Bot.chooseMove(cells), isNull);
   });
+
+  test('2048 supports a 5x5 board', () {
+    final game = Game2048(size: 5, target: 4096, random: Random(3));
+    game.reset();
+
+    expect(game.cells, hasLength(25));
+    expect(game.cells.where((value) => value != 0), hasLength(2));
+
+    game.cells.fillRange(0, game.cells.length, 0);
+    game.cells[0] = 2;
+    game.cells[1] = 2;
+
+    expect(game.move(Direction2048.left, spawn: false), isTrue);
+    expect(game.cells[0], 4);
+  });
+
+  test('2048 modes expose increasing sizes and targets', () {
+    expect(Game2048Mode.mini.size, 3);
+    expect(Game2048Mode.classic.size, 4);
+    expect(Game2048Mode.large.size, 5);
+    expect(Game2048Mode.huge.size, 6);
+    expect(Game2048Mode.classic.target, 2048);
+    expect(Game2048Mode.large.target, 4096);
+  });
 }

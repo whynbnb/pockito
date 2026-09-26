@@ -1484,15 +1484,34 @@ class _BaseCodecScreenState extends State<BaseCodecScreen> {
 
 enum Direction2048 { up, down, left, right }
 
+enum Game2048Mode {
+  mini(3, 256, '3 × 3'),
+  classic(4, 2048, '4 × 4'),
+  large(5, 4096, '5 × 5'),
+  huge(6, 8192, '6 × 6');
+
+  const Game2048Mode(this.size, this.target, this.label);
+  final int size;
+  final int target;
+  final String label;
+}
+
 class Game2048 {
-  Game2048({Random? random})
-    : this.withCells(List<int>.filled(size * size, 0), random: random);
+  Game2048({Random? random, this.size = 4, this.target = 2048})
+    : _random = random ?? Random() {
+    cells = List<int>.filled(size * size, 0);
+  }
 
-  Game2048.withCells(this.cells, {Random? random})
-    : _random = random ?? Random();
+  Game2048.withCells(
+    this.cells, {
+    this.size = 4,
+    this.target = 2048,
+    Random? random,
+  }) : _random = random ?? Random();
 
-  static const int size = 4;
-  final List<int> cells;
+  final int size;
+  final int target;
+  late final List<int> cells;
   final Random _random;
   int score = 0;
 
@@ -1523,7 +1542,7 @@ class Game2048 {
   bool move(Direction2048 direction, {bool spawn = true}) {
     final before = List<int>.of(cells);
     var gained = 0;
-    for (final line in _lines(direction)) {
+    for (final line in _lines(size, direction)) {
       final values = line.map((index) => cells[index]).toList();
       final collapsed = _collapse(values, (value) => gained += value);
       for (var index = 0; index < line.length; index++) {
@@ -1537,8 +1556,9 @@ class Game2048 {
   }
 
   static List<int> slideBoard(List<int> cells, Direction2048 direction) {
+    final size = sqrt(cells.length).round();
     final result = List<int>.of(cells);
-    for (final line in _lines(direction)) {
+    for (final line in _lines(size, direction)) {
       final values = line.map((index) => result[index]).toList();
       final collapsed = _collapse(values, (_) {});
       for (var index = 0; index < line.length; index++) {
@@ -1548,7 +1568,7 @@ class Game2048 {
     return result;
   }
 
-  static List<List<int>> _lines(Direction2048 direction) {
+  static List<List<int>> _lines(int size, Direction2048 direction) {
     final lines = <List<int>>[];
     for (var i = 0; i < size; i++) {
       final line = <int>[];
@@ -1649,13 +1669,14 @@ class Game2048Bot {
   }
 
   static double _evaluate(List<int> cells) {
+    final size = sqrt(cells.length).round();
     var empties = 0;
     for (final value in cells) {
       if (value == 0) empties++;
     }
     return empties * 2.7 +
-        _monotonicity(cells) +
-        _smoothness(cells) * 0.1 +
+        _monotonicity(cells, size) +
+        _smoothness(cells, size) * 0.1 +
         _maxTile(cells);
   }
 
@@ -1667,30 +1688,30 @@ class Game2048Bot {
     return _log2(maxValue);
   }
 
-  static double _smoothness(List<int> cells) {
+  static double _smoothness(List<int> cells, int size) {
     var smoothness = 0.0;
-    for (var row = 0; row < Game2048.size; row++) {
-      for (var column = 0; column < Game2048.size; column++) {
-        final index = row * Game2048.size + column;
+    for (var row = 0; row < size; row++) {
+      for (var column = 0; column < size; column++) {
+        final index = row * size + column;
         if (cells[index] == 0) continue;
         final value = _log2(cells[index]);
-        if (column + 1 < Game2048.size && cells[index + 1] != 0) {
+        if (column + 1 < size && cells[index + 1] != 0) {
           smoothness -= (value - _log2(cells[index + 1])).abs();
         }
-        if (row + 1 < Game2048.size && cells[index + Game2048.size] != 0) {
-          smoothness -= (value - _log2(cells[index + Game2048.size])).abs();
+        if (row + 1 < size && cells[index + size] != 0) {
+          smoothness -= (value - _log2(cells[index + size])).abs();
         }
       }
     }
     return smoothness;
   }
 
-  static double _monotonicity(List<int> cells) {
+  static double _monotonicity(List<int> cells, int size) {
     final totals = <double>[0, 0, 0, 0];
-    for (var row = 0; row < Game2048.size; row++) {
-      for (var column = 0; column + 1 < Game2048.size; column++) {
-        final current = _log2(cells[row * Game2048.size + column]);
-        final next = _log2(cells[row * Game2048.size + column + 1]);
+    for (var row = 0; row < size; row++) {
+      for (var column = 0; column + 1 < size; column++) {
+        final current = _log2(cells[row * size + column]);
+        final next = _log2(cells[row * size + column + 1]);
         if (current > next) {
           totals[0] += next - current;
         } else if (current < next) {
@@ -1698,10 +1719,10 @@ class Game2048Bot {
         }
       }
     }
-    for (var column = 0; column < Game2048.size; column++) {
-      for (var row = 0; row + 1 < Game2048.size; row++) {
-        final current = _log2(cells[row * Game2048.size + column]);
-        final next = _log2(cells[(row + 1) * Game2048.size + column]);
+    for (var column = 0; column < size; column++) {
+      for (var row = 0; row + 1 < size; row++) {
+        final current = _log2(cells[row * size + column]);
+        final next = _log2(cells[(row + 1) * size + column]);
         if (current > next) {
           totals[2] += next - current;
         } else if (current < next) {
@@ -1731,11 +1752,17 @@ Color _tile2048Color(int value) => switch (value) {
   _ => const Color(0xff3c3a32),
 };
 
-double _tile2048FontSize(int value) {
-  if (value < 100) return 30;
-  if (value < 1000) return 26;
-  if (value < 10000) return 20;
-  return 16;
+double _tile2048FontSize(int value, int boardSize) {
+  final base = switch (boardSize) {
+    3 => 40.0,
+    4 => 30.0,
+    5 => 24.0,
+    _ => 19.0,
+  };
+  if (value < 100) return base;
+  if (value < 1000) return base * 0.85;
+  if (value < 10000) return base * 0.68;
+  return base * 0.55;
 }
 
 class Game2048Screen extends StatefulWidget {
@@ -1745,7 +1772,8 @@ class Game2048Screen extends StatefulWidget {
 }
 
 class _Game2048ScreenState extends State<Game2048Screen> {
-  final _game = Game2048();
+  late Game2048 _game;
+  Game2048Mode _mode = Game2048Mode.classic;
   final _preferences = LocalPreferences();
   final _focusNode = FocusNode();
   Offset _dragDelta = Offset.zero;
@@ -1755,11 +1783,12 @@ class _Game2048ScreenState extends State<Game2048Screen> {
 
   bool get _autoPlaying => _autoTimer != null;
 
+  String get _bestKey => 'game_2048_best_${_mode.size}';
+
   @override
   void initState() {
     super.initState();
-    _game.reset();
-    _loadBest();
+    _startMode(_mode);
   }
 
   @override
@@ -1769,10 +1798,27 @@ class _Game2048ScreenState extends State<Game2048Screen> {
     super.dispose();
   }
 
+  void _startMode(Game2048Mode mode) {
+    _mode = mode;
+    _game = Game2048(size: mode.size, target: mode.target);
+    _game.reset();
+    _wonShown = false;
+    _best = 0;
+    _loadBest();
+  }
+
+  void _changeMode(Game2048Mode mode) {
+    if (mode == _mode) return;
+    _autoTimer?.cancel();
+    _autoTimer = null;
+    setState(() => _startMode(mode));
+  }
+
   Future<void> _loadBest() async {
-    final stored = await _preferences.getString('game_2048_best');
+    final key = _bestKey;
+    final stored = await _preferences.getString(key);
     final value = int.tryParse(stored ?? '');
-    if (!mounted || value == null) return;
+    if (!mounted || value == null || key != _bestKey) return;
     setState(() => _best = value);
   }
 
@@ -1781,12 +1827,12 @@ class _Game2048ScreenState extends State<Game2048Screen> {
     setState(() {
       if (_game.score > _best) {
         _best = _game.score;
-        unawaited(_preferences.setString('game_2048_best', '$_best'));
+        unawaited(_preferences.setString(_bestKey, '$_best'));
       }
     });
     if (!_wonShown &&
         !_autoPlaying &&
-        _game.cells.any((value) => value >= 2048)) {
+        _game.cells.any((value) => value >= _game.target)) {
       _wonShown = true;
       _showWin();
     }
@@ -1830,7 +1876,9 @@ class _Game2048ScreenState extends State<Game2048Screen> {
     context: context,
     builder: (context) => AlertDialog(
       title: Text(tr(context, 'You win!', '你赢了！')),
-      content: Text(tr(context, 'You reached 2048.', '你合成了 2048。')),
+      content: Text(
+        tr(context, 'You reached ${_game.target}.', '你合成了 ${_game.target}。'),
+      ),
       actions: [
         FilledButton(
           onPressed: () => Navigator.pop(context),
@@ -1898,24 +1946,45 @@ class _Game2048ScreenState extends State<Game2048Screen> {
     );
   }
 
-  Widget _board(BuildContext context, double side) => SizedBox(
-    width: side,
-    height: side,
-    child: Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
+  Widget _board(BuildContext context, double side) {
+    final size = _game.size;
+    final spacing = size <= 4 ? 8.0 : 5.0;
+    return SizedBox(
+      width: side,
+      height: side,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            for (var row = 0; row < size; row++) ...[
+              if (row > 0) SizedBox(height: spacing),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var column = 0; column < size; column++) ...[
+                      if (column > 0) SizedBox(width: spacing),
+                      Expanded(
+                        child: _Tile2048(
+                          key: ValueKey('tile-$row-$column'),
+                          value: _game.cells[row * size + column],
+                          boardSize: size,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
-      child: GridView.count(
-        crossAxisCount: Game2048.size,
-        physics: const NeverScrollableScrollPhysics(),
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-        children: [for (final value in _game.cells) _Tile2048(value: value)],
-      ),
-    ),
-  );
+    );
+  }
 
   Widget _gameOver(BuildContext context) => Container(
     decoration: BoxDecoration(
@@ -1948,6 +2017,16 @@ class _Game2048ScreenState extends State<Game2048Screen> {
     appBar: AppBar(
       title: Text(tr(context, '2048', '2048')),
       actions: [
+        PopupMenuButton<Game2048Mode>(
+          tooltip: tr(context, 'Board size', '棋盘大小'),
+          initialValue: _mode,
+          onSelected: _changeMode,
+          icon: const Icon(Icons.grid_on),
+          itemBuilder: (context) => [
+            for (final mode in Game2048Mode.values)
+              PopupMenuItem(value: mode, child: Text(mode.label)),
+          ],
+        ),
         IconButton(
           tooltip: _autoPlaying
               ? tr(context, 'Pause auto play', '暂停自动游玩')
@@ -1985,15 +2064,27 @@ class _Game2048ScreenState extends State<Game2048Screen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _scoreBox(
-                          context,
-                          tr(context, 'Score', '得分'),
-                          _game.score,
+                        Text(
+                          _mode.label,
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        const SizedBox(width: 8),
-                        _scoreBox(context, tr(context, 'Best', '最高'), _best),
+                        Row(
+                          children: [
+                            _scoreBox(
+                              context,
+                              tr(context, 'Score', '得分'),
+                              _game.score,
+                            ),
+                            const SizedBox(width: 8),
+                            _scoreBox(
+                              context,
+                              tr(context, 'Best', '最高'),
+                              _best,
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -2033,8 +2124,9 @@ class _Game2048ScreenState extends State<Game2048Screen> {
 }
 
 class _Tile2048 extends StatelessWidget {
-  const _Tile2048({required this.value});
+  const _Tile2048({super.key, required this.value, required this.boardSize});
   final int value;
+  final int boardSize;
 
   @override
   Widget build(BuildContext context) {
@@ -2059,7 +2151,7 @@ class _Tile2048 extends StatelessWidget {
         style: TextStyle(
           color: value <= 4 ? const Color(0xff776e65) : Colors.white,
           fontWeight: FontWeight.bold,
-          fontSize: _tile2048FontSize(value),
+          fontSize: _tile2048FontSize(value, boardSize),
         ),
       ),
     );

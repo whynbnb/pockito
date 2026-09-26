@@ -107,6 +107,35 @@ void main() {
     expect(find.byType(Game2048Screen), findsOneWidget);
   });
 
+  testWidgets('renders a full 2048 grid', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('2048'));
+    await tester.pumpAndSettle();
+
+    for (final position in ['tile-0-0', 'tile-0-3', 'tile-3-0', 'tile-3-3']) {
+      final cell = find.byKey(ValueKey(position));
+      expect(cell, findsOneWidget);
+      final size = tester.getSize(cell);
+      expect(size.width, greaterThan(10));
+      expect(size.height, greaterThan(10));
+    }
+  });
+
+  testWidgets('switches the 2048 board size', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('2048'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.grid_on));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('5 × 5'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('5 × 5'), findsOneWidget);
+  });
+
   testWidgets('auto plays the 2048 tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
