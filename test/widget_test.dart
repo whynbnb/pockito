@@ -107,6 +107,25 @@ void main() {
     expect(find.byType(Game2048Screen), findsOneWidget);
   });
 
+  testWidgets('auto plays the 2048 tool', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('2048'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Auto play'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byTooltip('Pause auto play'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Pause auto play'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Auto play'), findsOneWidget);
+  });
+
   testWidgets('counts custom events with the +1 tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 

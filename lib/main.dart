@@ -1536,7 +1536,19 @@ class Game2048 {
     return true;
   }
 
-  List<List<int>> _lines(Direction2048 direction) {
+  static List<int> slideBoard(List<int> cells, Direction2048 direction) {
+    final result = List<int>.of(cells);
+    for (final line in _lines(direction)) {
+      final values = line.map((index) => result[index]).toList();
+      final collapsed = _collapse(values, (_) {});
+      for (var index = 0; index < line.length; index++) {
+        result[line[index]] = collapsed[index];
+      }
+    }
+    return result;
+  }
+
+  static List<List<int>> _lines(Direction2048 direction) {
     final lines = <List<int>>[];
     for (var i = 0; i < size; i++) {
       final line = <int>[];
@@ -1553,7 +1565,7 @@ class Game2048 {
     return lines;
   }
 
-  List<int> _collapse(List<int> values, void Function(int) onMerge) {
+  static List<int> _collapse(List<int> values, void Function(int) onMerge) {
     final compact = values.where((value) => value != 0).toList();
     final merged = <int>[];
     var index = 0;
@@ -1583,6 +1595,125 @@ class Game2048 {
     final index = empty[_random.nextInt(empty.length)];
     cells[index] = _random.nextInt(10) == 0 ? 4 : 2;
   }
+}
+
+class Game2048Bot {
+  static Direction2048? chooseMove(
+    List<int> cells, {
+    int depth = 3,
+    int maxChanceSamples = 4,
+  }) {
+    Direction2048? best;
+    var bestScore = double.negativeInfinity;
+    for (final direction in Direction2048.values) {
+      final next = Game2048.slideBoard(cells, direction);
+      if (listEquals(next, cells)) continue;
+      final score = _chanceValue(next, depth, maxChanceSamples);
+      if (score > bestScore) {
+        bestScore = score;
+        best = direction;
+      }
+    }
+    return best;
+  }
+
+  static double _maxValue(List<int> cells, int depth, int maxChanceSamples) {
+    if (depth <= 0) return _evaluate(cells);
+    var best = double.negativeInfinity;
+    for (final direction in Direction2048.values) {
+      final next = Game2048.slideBoard(cells, direction);
+      if (listEquals(next, cells)) continue;
+      final score = _chanceValue(next, depth, maxChanceSamples);
+      if (score > best) best = score;
+    }
+    return best == double.negativeInfinity ? _evaluate(cells) : best;
+  }
+
+  static double _chanceValue(List<int> cells, int depth, int maxChanceSamples) {
+    final empties = <int>[];
+    for (var index = 0; index < cells.length; index++) {
+      if (cells[index] == 0) empties.add(index);
+    }
+    if (empties.isEmpty) return _maxValue(cells, depth - 1, maxChanceSamples);
+    final sample = empties.length <= maxChanceSamples
+        ? empties
+        : empties.sublist(0, maxChanceSamples);
+    var total = 0.0;
+    for (final index in sample) {
+      final withTwo = List<int>.of(cells)..[index] = 2;
+      final withFour = List<int>.of(cells)..[index] = 4;
+      total += 0.9 * _maxValue(withTwo, depth - 1, maxChanceSamples);
+      total += 0.1 * _maxValue(withFour, depth - 1, maxChanceSamples);
+    }
+    return total / sample.length;
+  }
+
+  static double _evaluate(List<int> cells) {
+    var empties = 0;
+    for (final value in cells) {
+      if (value == 0) empties++;
+    }
+    return empties * 2.7 +
+        _monotonicity(cells) +
+        _smoothness(cells) * 0.1 +
+        _maxTile(cells);
+  }
+
+  static double _maxTile(List<int> cells) {
+    var maxValue = 0;
+    for (final value in cells) {
+      if (value > maxValue) maxValue = value;
+    }
+    return _log2(maxValue);
+  }
+
+  static double _smoothness(List<int> cells) {
+    var smoothness = 0.0;
+    for (var row = 0; row < Game2048.size; row++) {
+      for (var column = 0; column < Game2048.size; column++) {
+        final index = row * Game2048.size + column;
+        if (cells[index] == 0) continue;
+        final value = _log2(cells[index]);
+        if (column + 1 < Game2048.size && cells[index + 1] != 0) {
+          smoothness -= (value - _log2(cells[index + 1])).abs();
+        }
+        if (row + 1 < Game2048.size && cells[index + Game2048.size] != 0) {
+          smoothness -= (value - _log2(cells[index + Game2048.size])).abs();
+        }
+      }
+    }
+    return smoothness;
+  }
+
+  static double _monotonicity(List<int> cells) {
+    final totals = <double>[0, 0, 0, 0];
+    for (var row = 0; row < Game2048.size; row++) {
+      for (var column = 0; column + 1 < Game2048.size; column++) {
+        final current = _log2(cells[row * Game2048.size + column]);
+        final next = _log2(cells[row * Game2048.size + column + 1]);
+        if (current > next) {
+          totals[0] += next - current;
+        } else if (current < next) {
+          totals[1] += current - next;
+        }
+      }
+    }
+    for (var column = 0; column < Game2048.size; column++) {
+      for (var row = 0; row + 1 < Game2048.size; row++) {
+        final current = _log2(cells[row * Game2048.size + column]);
+        final next = _log2(cells[(row + 1) * Game2048.size + column]);
+        if (current > next) {
+          totals[2] += next - current;
+        } else if (current < next) {
+          totals[3] += current - next;
+        }
+      }
+    }
+    return max(totals[0], totals[1]) + max(totals[2], totals[3]);
+  }
+
+  static double _log2(int value) =>
+      value <= 0 ? 0 : log(value.toDouble()) / ln2;
 }
 
 Color _tile2048Color(int value) => switch (value) {
@@ -1620,6 +1751,9 @@ class _Game2048ScreenState extends State<Game2048Screen> {
   Offset _dragDelta = Offset.zero;
   int _best = 0;
   bool _wonShown = false;
+  Timer? _autoTimer;
+
+  bool get _autoPlaying => _autoTimer != null;
 
   @override
   void initState() {
@@ -1630,6 +1764,7 @@ class _Game2048ScreenState extends State<Game2048Screen> {
 
   @override
   void dispose() {
+    _autoTimer?.cancel();
     _focusNode.dispose();
     super.dispose();
   }
@@ -1649,10 +1784,46 @@ class _Game2048ScreenState extends State<Game2048Screen> {
         unawaited(_preferences.setString('game_2048_best', '$_best'));
       }
     });
-    if (!_wonShown && _game.cells.any((value) => value >= 2048)) {
+    if (!_wonShown &&
+        !_autoPlaying &&
+        _game.cells.any((value) => value >= 2048)) {
       _wonShown = true;
       _showWin();
     }
+  }
+
+  void _toggleAuto() {
+    if (_autoPlaying) {
+      _stopAuto();
+      return;
+    }
+    setState(() {
+      _autoTimer = Timer.periodic(
+        const Duration(milliseconds: 320),
+        (_) => _autoStep(),
+      );
+    });
+    _autoStep();
+  }
+
+  void _autoStep() {
+    if (!_game.hasMoves) {
+      _stopAuto();
+      return;
+    }
+    final move = Game2048Bot.chooseMove(_game.cells);
+    if (move == null) {
+      _stopAuto();
+      return;
+    }
+    _move(move);
+    if (!_game.hasMoves) _stopAuto();
+  }
+
+  void _stopAuto() {
+    _autoTimer?.cancel();
+    _autoTimer = null;
+    if (mounted) setState(() {});
   }
 
   Future<void> _showWin() => showDialog<void>(
@@ -1777,6 +1948,17 @@ class _Game2048ScreenState extends State<Game2048Screen> {
     appBar: AppBar(
       title: Text(tr(context, '2048', '2048')),
       actions: [
+        IconButton(
+          tooltip: _autoPlaying
+              ? tr(context, 'Pause auto play', '暂停自动游玩')
+              : tr(context, 'Auto play', '自动游玩'),
+          onPressed: _toggleAuto,
+          icon: Icon(
+            _autoPlaying
+                ? Icons.pause_circle_outline
+                : Icons.play_circle_outline,
+          ),
+        ),
         IconButton(
           tooltip: tr(context, 'Restart', '重新开始'),
           onPressed: _restart,

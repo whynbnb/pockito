@@ -134,4 +134,16 @@ void main() {
     expect(values.every((value) => value == 2 || value == 4), isTrue);
     expect(game.score, 0);
   });
+
+  test('2048 bot picks the only available move', () {
+    const cells = [2, 4, 8, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    expect(Game2048Bot.chooseMove(cells), Direction2048.down);
+  });
+
+  test('2048 bot returns null on a locked board', () {
+    const cells = [2, 4, 2, 4, 4, 2, 4, 2, 2, 4, 2, 4, 4, 2, 4, 2];
+
+    expect(Game2048Bot.chooseMove(cells), isNull);
+  });
 }
