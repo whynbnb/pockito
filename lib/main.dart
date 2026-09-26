@@ -13,6 +13,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:pinyin/pinyin.dart';
+import 'package:torch_flashlight/torch_flashlight.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -446,6 +448,17 @@ class HomeScreen extends StatelessWidget {
                 '与电脑对战，并可自定义符号。',
               ),
               onTap: () => _open(context, const TicTacToeScreen()),
+            ),
+            const SizedBox(height: 12),
+            _ToolTile(
+              icon: Icons.flashlight_on_outlined,
+              title: tr(context, 'Flashlight', '手电筒'),
+              subtitle: tr(
+                context,
+                'Torch, brightness, SOS, blinking and Morse code.',
+                '手电筒、亮度、SOS、闪烁与摩尔斯电码。',
+              ),
+              onTap: () => _open(context, const FlashlightScreen()),
             ),
           ],
         ),
@@ -2899,6 +2912,548 @@ class _SymbolDialogState extends State<_SymbolDialog> {
       ),
       FilledButton(onPressed: _submit, child: Text(tr(context, 'Save', '保存'))),
     ],
+  );
+}
+
+const Map<String, String> morseAlphabet = {
+  'A': '.-',
+  'B': '-...',
+  'C': '-.-.',
+  'D': '-..',
+  'E': '.',
+  'F': '..-.',
+  'G': '--.',
+  'H': '....',
+  'I': '..',
+  'J': '.---',
+  'K': '-.-',
+  'L': '.-..',
+  'M': '--',
+  'N': '-.',
+  'O': '---',
+  'P': '.--.',
+  'Q': '--.-',
+  'R': '.-.',
+  'S': '...',
+  'T': '-',
+  'U': '..-',
+  'V': '...-',
+  'W': '.--',
+  'X': '-..-',
+  'Y': '-.--',
+  'Z': '--..',
+  '0': '-----',
+  '1': '.----',
+  '2': '..---',
+  '3': '...--',
+  '4': '....-',
+  '5': '.....',
+  '6': '-....',
+  '7': '--...',
+  '8': '---..',
+  '9': '----.',
+};
+
+bool _isCjkRune(int rune) =>
+    (rune >= 0x4e00 && rune <= 0x9fff) || (rune >= 0x3400 && rune <= 0x4dbf);
+
+String _latinizeForMorse(String word) {
+  final buffer = StringBuffer();
+  for (final rune in word.runes) {
+    if (_isCjkRune(rune)) {
+      buffer.write(
+        PinyinHelper.getPinyinE(
+          String.fromCharCode(rune),
+          separator: '',
+          format: PinyinFormat.WITHOUT_TONE,
+        ),
+      );
+    } else {
+      buffer.writeCharCode(rune);
+    }
+  }
+  return buffer.toString();
+}
+
+String textToMorse(String text) {
+  final normalized = text.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (normalized.isEmpty) return '';
+  final encodedWords = <String>[];
+  for (final rawWord in normalized.split(' ')) {
+    final latin = _latinizeForMorse(rawWord).toUpperCase();
+    final letters = <String>[];
+    for (final rune in latin.runes) {
+      final code = morseAlphabet[String.fromCharCode(rune)];
+      if (code != null) letters.add(code);
+    }
+    if (letters.isNotEmpty) encodedWords.add(letters.join(' '));
+  }
+  return encodedWords.join(' / ');
+}
+
+List<int> morseBlinkPattern(String morse, {int unit = 200}) {
+  final pattern = <int>[];
+  final words = morse.trim().split('/');
+  var hasContent = false;
+  for (final rawWord in words) {
+    final letters = rawWord
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((letter) => letter.isNotEmpty)
+        .toList();
+    if (letters.isEmpty) continue;
+    if (hasContent) pattern.add(7 * unit);
+    for (var letter = 0; letter < letters.length; letter++) {
+      if (letter > 0) pattern.add(3 * unit);
+      final symbols = letters[letter].split('');
+      for (var symbol = 0; symbol < symbols.length; symbol++) {
+        if (symbol > 0) pattern.add(1 * unit);
+        pattern.add((symbols[symbol] == '-' ? 3 : 1) * unit);
+      }
+    }
+    hasContent = true;
+  }
+  return pattern;
+}
+
+class _TorchBlinkPlayer {
+  _TorchBlinkPlayer(this._apply);
+
+  final Future<void> Function(bool on) _apply;
+  Timer? _timer;
+  List<int> _pattern = const [];
+  bool _repeat = false;
+  int _index = 0;
+  VoidCallback? onDone;
+
+  bool get isRunning => _timer != null;
+
+  void start(List<int> pattern, {bool repeat = false}) {
+    stop();
+    if (pattern.isEmpty) return;
+    _pattern = pattern;
+    _repeat = repeat;
+    _index = 0;
+    _schedule();
+  }
+
+  void _schedule() {
+    if (_index >= _pattern.length) {
+      if (!_repeat) {
+        _timer = null;
+        unawaited(_apply(false));
+        onDone?.call();
+        return;
+      }
+      _index = 0;
+    }
+    final on = _index.isEven;
+    final delay = _pattern[_index];
+    _index++;
+    unawaited(_apply(on));
+    _timer = Timer(Duration(milliseconds: delay), _schedule);
+  }
+
+  void stop({bool apply = true}) {
+    _timer?.cancel();
+    _timer = null;
+    _index = 0;
+    if (apply) unawaited(_apply(false));
+  }
+
+  void dispose() => stop(apply: false);
+}
+
+enum _FlashMode { off, steady, sos, periodic, morse }
+
+class FlashlightScreen extends StatefulWidget {
+  const FlashlightScreen({super.key});
+  @override
+  State<FlashlightScreen> createState() => _FlashlightScreenState();
+}
+
+class _FlashlightScreenState extends State<FlashlightScreen> {
+  static const _torchTimeout = Duration(seconds: 2);
+  final _morseController = TextEditingController();
+  late final _player = _TorchBlinkPlayer(_applyTorch);
+  bool? _supported;
+  bool _supportsStrength = false;
+  int _maxStrength = 1;
+  int _strength = 1;
+  int _periodMs = 500;
+  String _morseOutput = '';
+  _FlashMode _mode = _FlashMode.off;
+
+  @override
+  void initState() {
+    super.initState();
+    _player.onDone = () {
+      if (mounted) setState(() => _mode = _FlashMode.off);
+    };
+    _checkSupport();
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    unawaited(TorchFlashlight.disableTorchFlashlight().catchError((_) {}));
+    _morseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkSupport() async {
+    var supported = false;
+    var supportsStrength = false;
+    var maxStrength = 1;
+    try {
+      supported = await TorchFlashlight.isTorchFlashlightAvailable().timeout(
+        _torchTimeout,
+      );
+      if (supported) {
+        final capabilities = await TorchFlashlight.getCapabilities().timeout(
+          _torchTimeout,
+        );
+        supportsStrength = capabilities.supportsStrength;
+        if (supportsStrength) {
+          maxStrength = await TorchFlashlight.getMaxTorchStrength().timeout(
+            _torchTimeout,
+          );
+        }
+      }
+    } catch (_) {
+      supported = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _supported = supported;
+      _maxStrength = maxStrength < 1 ? 1 : maxStrength;
+      _supportsStrength = supportsStrength && _maxStrength > 1;
+      _strength = _maxStrength;
+    });
+  }
+
+  Future<void> _applyTorch(bool on) async {
+    try {
+      if (on) {
+        await TorchFlashlight.enableTorchFlashlight().timeout(_torchTimeout);
+        if (_supportsStrength) {
+          await TorchFlashlight.setTorchStrength(_strength)
+              .timeout(_torchTimeout);
+        }
+      } else {
+        await TorchFlashlight.disableTorchFlashlight().timeout(_torchTimeout);
+      }
+    } catch (_) {
+      // Ignore torch errors on unsupported devices or while the camera is busy.
+    }
+  }
+
+  void _setMode(_FlashMode mode) {
+    _player.stop();
+    if (mode == _FlashMode.off) {
+      setState(() => _mode = _FlashMode.off);
+    } else if (mode == _FlashMode.steady) {
+      setState(() => _mode = _FlashMode.steady);
+      unawaited(_applyTorch(true));
+    } else if (mode == _FlashMode.sos) {
+      setState(() => _mode = _FlashMode.sos);
+      _player.start(morseBlinkPattern(textToMorse('SOS')), repeat: true);
+    } else if (mode == _FlashMode.periodic) {
+      setState(() => _mode = _FlashMode.periodic);
+      _player.start([_periodMs, _periodMs], repeat: true);
+    } else {
+      final pattern = morseBlinkPattern(_morseOutput);
+      if (pattern.isEmpty) {
+        setState(() => _mode = _FlashMode.off);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(tr(context, 'Nothing to send yet.', '还没有可发送的内容。')),
+          ),
+        );
+      } else {
+        setState(() => _mode = _FlashMode.morse);
+        _player.start(pattern);
+      }
+    }
+  }
+
+  void _changeStrength(double value) {
+    setState(() => _strength = value.round());
+    if (_mode == _FlashMode.steady) unawaited(_applyTorch(true));
+  }
+
+  void _changePeriod(double value) {
+    setState(() => _periodMs = value.round());
+    if (_mode == _FlashMode.periodic) {
+      _player.start([_periodMs, _periodMs], repeat: true);
+    }
+  }
+
+  Widget _supportCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final supported = _supported == true;
+    return Card(
+      color: supported
+          ? theme.colorScheme.secondaryContainer
+          : theme.colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(
+              supported
+                  ? Icons.flashlight_on_outlined
+                  : Icons.flashlight_off_outlined,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                supported
+                    ? tr(
+                        context,
+                        'Flashlight detected on this device.',
+                        '已检测到本机手电筒。',
+                      )
+                    : tr(
+                        context,
+                        'No flashlight detected on this device. Torch controls are unavailable; you can still convert text to Morse code below.',
+                        '未检测到本机手电筒。无法控制闪光灯，但仍可在下方把文字转换为摩尔斯电码。',
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _modeButton({
+    required String label,
+    required IconData icon,
+    required _FlashMode mode,
+    bool enabled = true,
+  }) {
+    final active = _mode == mode;
+    final onPressed = enabled
+        ? () => _setMode(active ? _FlashMode.off : mode)
+        : null;
+    final child = Icon(icon);
+    final text = Text(label);
+    if (active) {
+      return FilledButton.icon(onPressed: onPressed, icon: child, label: text);
+    }
+    return OutlinedButton.icon(onPressed: onPressed, icon: child, label: text);
+  }
+
+  Widget _steadySection(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr(context, 'Flashlight', '手电筒'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _modeButton(
+                  label: tr(context, 'On', '常亮'),
+                  icon: Icons.lightbulb_outline,
+                  mode: _FlashMode.steady,
+                ),
+                const SizedBox(width: 12),
+                _modeButton(
+                  label: tr(context, 'Off', '关闭'),
+                  icon: Icons.lightbulb,
+                  mode: _FlashMode.off,
+                ),
+              ],
+            ),
+            if (_supportsStrength) ...[
+              const SizedBox(height: 12),
+              Text(
+                tr(
+                  context,
+                  'Brightness $_strength / $_maxStrength',
+                  '亮度 $_strength / $_maxStrength',
+                ),
+              ),
+              Slider(
+                value: _strength.toDouble(),
+                min: 1,
+                max: _maxStrength.toDouble(),
+                divisions: _maxStrength - 1,
+                label: '$_strength',
+                onChanged: _changeStrength,
+              ),
+            ] else ...[
+              const SizedBox(height: 12),
+              Text(
+                tr(
+                  context,
+                  'Brightness levels are not supported on this device (requires Android 13+ or iOS 14+).',
+                  '本机不支持亮度级别（需要 Android 13+ 或 iOS 14+）。',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _signalsSection(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr(context, 'Signals', '信号'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _modeButton(
+                  label: tr(context, 'SOS', 'SOS'),
+                  icon: Icons.sos_outlined,
+                  mode: _FlashMode.sos,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              tr(
+                context,
+                'Fixed-period flashing: $_periodMs ms',
+                '固定周期闪烁：$_periodMs 毫秒',
+              ),
+            ),
+            Slider(
+              value: _periodMs.toDouble(),
+              min: 100,
+              max: 2000,
+              divisions: 19,
+              label: '$_periodMs',
+              onChanged: _changePeriod,
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _modeButton(
+                label: tr(context, 'Blink', '闪烁'),
+                icon: Icons.flash_on_outlined,
+                mode: _FlashMode.periodic,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _morseSection(BuildContext context) {
+    final canSend = _supported == true && _morseOutput.isNotEmpty;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr(context, 'Morse code', '摩尔斯电码'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _morseController,
+              onChanged: (value) =>
+                  setState(() => _morseOutput = textToMorse(value)),
+              decoration: InputDecoration(
+                labelText: tr(
+                  context,
+                  'Text (letters, numbers or Chinese)',
+                  '文字（字母、数字或中文）',
+                ),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SelectableText(
+              _morseOutput.isEmpty
+                  ? tr(context, 'Morse code appears here.', '摩尔斯电码将显示在这里。')
+                  : _morseOutput,
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(fontFamily: 'monospace'),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _modeButton(
+                  label: tr(context, 'Send', '发送'),
+                  icon: Icons.send_outlined,
+                  mode: _FlashMode.morse,
+                  enabled: canSend,
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  onPressed: _mode == _FlashMode.off
+                      ? null
+                      : () => _setMode(_FlashMode.off),
+                  icon: const Icon(Icons.stop_circle_outlined),
+                  label: Text(tr(context, 'Stop', '停止')),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(tr(context, 'Flashlight', '手电筒')),
+      actions: [
+        if (_supported == true)
+          IconButton(
+            tooltip: tr(context, 'Stop', '停止'),
+            onPressed: _mode == _FlashMode.off
+                ? null
+                : () => _setMode(_FlashMode.off),
+            icon: const Icon(Icons.stop_circle_outlined),
+          ),
+      ],
+    ),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: _supported == null
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+                children: [
+                  _supportCard(context),
+                  const SizedBox(height: 16),
+                  if (_supported == true) ...[
+                    _steadySection(context),
+                    const SizedBox(height: 16),
+                    _signalsSection(context),
+                    const SizedBox(height: 16),
+                  ],
+                  _morseSection(context),
+                ],
+              ),
+      ),
+    ),
   );
 }
 

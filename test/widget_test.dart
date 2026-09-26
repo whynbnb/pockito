@@ -200,6 +200,22 @@ void main() {
     expect(find.text('Total after: 1'), findsOneWidget);
   });
 
+  testWidgets('opens the flashlight tool and converts morse', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.scrollUntilVisible(find.text('Flashlight'), 200.0);
+    await tester.tap(find.text('Flashlight'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FlashlightScreen), findsOneWidget);
+    expect(find.textContaining('No flashlight'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'SOS');
+    await tester.pumpAndSettle();
+
+    expect(find.text('... --- ...'), findsOneWidget);
+  });
+
   testWidgets('shows tic tac toe acknowledgements', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
