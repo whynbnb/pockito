@@ -36,9 +36,57 @@ String tr(BuildContext context, String english, String chinese) =>
 
 enum LocaleMode { english, chinese, system }
 
+class LocalPreferences {
+  LocalPreferences([this._directory]);
+  static const _fileName = 'tool_prefs.json';
+  final Directory? _directory;
+  File? _file;
+  Map<String, dynamic>? _cache;
+
+  Future<File> _resolveFile() async {
+    final cached = _file;
+    if (cached != null) return cached;
+    final directory = _directory ?? await getApplicationSupportDirectory();
+    final file = File('${directory.path}${Platform.pathSeparator}$_fileName');
+    _file = file;
+    return file;
+  }
+
+  Future<Map<String, dynamic>> _readAll() async {
+    final cached = _cache;
+    if (cached != null) return cached;
+    try {
+      final file = await _resolveFile();
+      if (!await file.exists()) return _cache = {};
+      final raw = await file.readAsString();
+      final decoded = raw.trim().isEmpty ? null : jsonDecode(raw);
+      return _cache = decoded is Map
+          ? Map<String, dynamic>.from(decoded)
+          : <String, dynamic>{};
+    } catch (_) {
+      return _cache = {};
+    }
+  }
+
+  Future<String?> getString(String key) async {
+    final value = (await _readAll())[key];
+    return value is String ? value : null;
+  }
+
+  Future<void> setString(String key, String value) async {
+    final all = await _readAll();
+    all[key] = value;
+    try {
+      final file = await _resolveFile();
+      await file.writeAsString(jsonEncode(all), flush: true);
+    } catch (_) {}
+  }
+}
+
 class AppSettings extends ChangeNotifier {
-  AppSettings() : _storage = const FlutterSecureStorage();
-  final FlutterSecureStorage _storage;
+  AppSettings({LocalPreferences? preferences})
+    : _preferences = preferences ?? LocalPreferences();
+  final LocalPreferences _preferences;
   ThemeMode themeMode = ThemeMode.light;
   LocaleMode localeMode = LocaleMode.english;
 
@@ -47,8 +95,8 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> load() async {
     try {
-      final theme = await _storage.read(key: 'ui_theme');
-      final language = await _storage.read(key: 'ui_language');
+      final theme = await _preferences.getString('ui_theme');
+      final language = await _preferences.getString('ui_language');
       themeMode = theme == 'system'
           ? ThemeMode.system
           : (theme == 'dark' ? ThemeMode.dark : ThemeMode.light);
@@ -57,7 +105,7 @@ class AppSettings extends ChangeNotifier {
           : (language == 'zh' ? LocaleMode.chinese : LocaleMode.english);
       notifyListeners();
     } catch (_) {
-      // Keep defaults when platform secure storage is unavailable.
+      // Keep defaults when local storage is unavailable.
     }
   }
 
@@ -65,14 +113,11 @@ class AppSettings extends ChangeNotifier {
     themeMode = mode;
     notifyListeners();
     try {
-      await _storage.write(
-        key: 'ui_theme',
-        value: switch (mode) {
-          ThemeMode.dark => 'dark',
-          ThemeMode.system => 'system',
-          ThemeMode.light => 'light',
-        },
-      );
+      await _preferences.setString('ui_theme', switch (mode) {
+        ThemeMode.dark => 'dark',
+        ThemeMode.system => 'system',
+        ThemeMode.light => 'light',
+      });
     } catch (_) {}
   }
 
@@ -80,14 +125,11 @@ class AppSettings extends ChangeNotifier {
     localeMode = mode;
     notifyListeners();
     try {
-      await _storage.write(
-        key: 'ui_language',
-        value: switch (mode) {
-          LocaleMode.english => 'en',
-          LocaleMode.chinese => 'zh',
-          LocaleMode.system => 'system',
-        },
-      );
+      await _preferences.setString('ui_language', switch (mode) {
+        LocaleMode.english => 'en',
+        LocaleMode.chinese => 'zh',
+        LocaleMode.system => 'system',
+      });
     } catch (_) {}
   }
 }
@@ -381,14 +423,26 @@ class CounterItem {
 }
 
 class CounterStore {
-  CounterStore() : _storage = const FlutterSecureStorage();
-  final FlutterSecureStorage _storage;
-  static const _key = 'tool_counters';
+  CounterStore([this._directory]);
+  static const _fileName = 'tool_counters.json';
+  final Directory? _directory;
+  File? _file;
+
+  Future<File> _resolveFile() async {
+    final cached = _file;
+    if (cached != null) return cached;
+    final directory = _directory ?? await getApplicationSupportDirectory();
+    final file = File('${directory.path}${Platform.pathSeparator}$_fileName');
+    _file = file;
+    return file;
+  }
 
   Future<List<CounterItem>> load() async {
     try {
-      final raw = await _storage.read(key: _key);
-      if (raw == null || raw.isEmpty) return [];
+      final file = await _resolveFile();
+      if (!await file.exists()) return [];
+      final raw = await file.readAsString();
+      if (raw.trim().isEmpty) return [];
       final decoded = jsonDecode(raw);
       if (decoded is! List) return [];
       return decoded
@@ -404,9 +458,10 @@ class CounterStore {
 
   Future<void> save(List<CounterItem> items) async {
     try {
-      await _storage.write(
-        key: _key,
-        value: jsonEncode(items.map((item) => item.toJson()).toList()),
+      final file = await _resolveFile();
+      await file.writeAsString(
+        jsonEncode(items.map((item) => item.toJson()).toList()),
+        flush: true,
       );
     } catch (_) {}
   }
@@ -474,6 +529,7 @@ class _CounterScreenState extends State<CounterScreen> {
   final _store = CounterStore();
   final _random = Random.secure();
   final _items = <CounterItem>[];
+  bool _dirty = false;
 
   @override
   void initState() {
@@ -483,7 +539,7 @@ class _CounterScreenState extends State<CounterScreen> {
 
   Future<void> _load() async {
     final items = await _store.load();
-    if (!mounted || items.isEmpty) return;
+    if (!mounted || _dirty || items.isEmpty) return;
     setState(() {
       _items
         ..clear()
@@ -492,6 +548,7 @@ class _CounterScreenState extends State<CounterScreen> {
   }
 
   void _persist() {
+    _dirty = true;
     unawaited(_store.save(_items));
   }
 
