@@ -290,4 +290,68 @@ void main() {
     final after = tester.getSize(find.byKey(const ValueKey('tic-tac-toe-0')));
     expect(after, before);
   });
+
+  testWidgets('ends tic tac toe early with quick result detection', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Game mode'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Two players'));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.flash_off), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.flash_off));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.flash_on), findsOneWidget);
+
+    for (final index in [0, 3, 1, 4]) {
+      await tester.tap(find.byKey(ValueKey('tic-tac-toe-$index')));
+      await tester.pump();
+    }
+
+    expect(find.text('X wins!'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('tic-tac-toe-2')),
+        matching: find.byType(Text),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('detects a tic tac toe draw before the board fills', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Game mode'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Two players'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.flash_off));
+    await tester.pumpAndSettle();
+
+    for (final index in [0, 4, 1, 2, 6, 3, 5, 7]) {
+      await tester.tap(find.byKey(ValueKey('tic-tac-toe-$index')));
+      await tester.pump();
+    }
+
+    expect(find.text('Draw'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('tic-tac-toe-8')),
+        matching: find.byType(Text),
+      ),
+      findsNothing,
+    );
+  });
 }

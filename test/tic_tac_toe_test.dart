@@ -91,6 +91,45 @@ void main() {
     }
   });
 
+  test('forced winner is null on a drawn board', () {
+    expect(
+      TicTacToeBot.forcedWinner(List<TicTacToePlayer?>.filled(9, null)),
+      isNull,
+    );
+  });
+
+  test('forced winner detects an unavoidable win and loss', () {
+    expect(
+      TicTacToeBot.forcedWinner(board('xx.oo....').cells),
+      TicTacToePlayer.x,
+    );
+    expect(
+      TicTacToeBot.forcedWinner(board('xx.oo.x..').cells),
+      TicTacToePlayer.o,
+    );
+  });
+
+  test('forced winner detects a fork before the board is full', () {
+    final game = board('xoo..x...');
+    expect(game.winner, isNull);
+    expect(game.isOver, isFalse);
+    expect(TicTacToeBot.forcedWinner(game.cells), TicTacToePlayer.x);
+  });
+
+  test('dead draw is detected once no line can be completed', () {
+    final dead = board('xoxxooox.');
+    expect(dead.winner, isNull);
+    expect(dead.isFull, isFalse);
+    expect(dead.isDeadDraw, isTrue);
+    expect(TicTacToeBot.forcedWinner(dead.cells), isNull);
+  });
+
+  test('dead draw is not reported while a line is still winnable', () {
+    expect(board('xoxxoooxx').isDeadDraw, isTrue);
+    expect(board('xx.......').isDeadDraw, isFalse);
+    expect(board('.........').isDeadDraw, isFalse);
+  });
+
   test('hard bot never loses against random play', () {
     final rng = Random(2026);
     for (var round = 0; round < 40; round++) {

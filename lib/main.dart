@@ -2235,6 +2235,22 @@ class TicTacToe {
 
   bool get isOver => winner != null || isFull;
 
+  bool get isDeadDraw {
+    for (final line in lines) {
+      var hasX = false;
+      var hasO = false;
+      for (final index in line) {
+        if (cells[index] == TicTacToePlayer.x) {
+          hasX = true;
+        } else if (cells[index] == TicTacToePlayer.o) {
+          hasO = true;
+        }
+      }
+      if (!hasX || !hasO) return false;
+    }
+    return true;
+  }
+
   TicTacToePlayer get currentPlayer {
     var x = 0;
     var o = 0;
@@ -2301,6 +2317,21 @@ class TicTacToeBot {
     return best;
   }
 
+  static TicTacToePlayer? forcedWinner(List<TicTacToePlayer?> cells) {
+    final game = TicTacToe(cells: cells);
+    if (game.isOver) return game.winner;
+    final score = _minimax(
+      game,
+      TicTacToePlayer.x,
+      TicTacToePlayer.o,
+      game.currentPlayer == TicTacToePlayer.x,
+      0,
+    );
+    if (score > 0) return TicTacToePlayer.x;
+    if (score < 0) return TicTacToePlayer.o;
+    return null;
+  }
+
   static int? _findWinningMove(TicTacToe game, TicTacToePlayer player) {
     for (final index in game.emptyCells) {
       game.cells[index] = player;
@@ -2363,9 +2394,16 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
   Timer? _botTimer;
   bool _thinking = false;
   bool _resultCounted = false;
+  bool _quickEnd = false;
+  TicTacToePlayer? _earlyWinner;
+  bool _earlyDraw = false;
   int _wins = 0;
   int _losses = 0;
   int _draws = 0;
+
+  bool get _isGameOver => _game.isOver || _earlyWinner != null || _earlyDraw;
+
+  TicTacToePlayer? get _resultWinner => _game.winner ?? _earlyWinner;
 
   @override
   void initState() {
@@ -2390,14 +2428,15 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
   }
 
   void _onCellTap(int index) {
-    if (_thinking || _game.isOver || _game.cells[index] != null) return;
+    if (_thinking || _isGameOver || _game.cells[index] != null) return;
     final player = _game.currentPlayer;
     if (_mode == TicTacToeMode.vsBot && player != TicTacToePlayer.x) return;
     setState(() {
       _game.play(index, player);
+      _detectEarlyResult();
       _finishIfOver();
     });
-    if (_game.isOver) return;
+    if (_isGameOver) return;
     if (_mode == TicTacToeMode.vsBot) _scheduleBot();
   }
 
@@ -2409,6 +2448,8 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
       _game.reset();
       _thinking = false;
       _resultCounted = false;
+      _earlyWinner = null;
+      _earlyDraw = false;
     });
   }
 
@@ -2426,15 +2467,34 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
       setState(() {
         _thinking = false;
         if (move != null) _game.play(move, TicTacToePlayer.o);
+        _detectEarlyResult();
         _finishIfOver();
       });
     });
   }
 
+  void _detectEarlyResult() {
+    if (!_quickEnd || _isGameOver || _game.isOver) return;
+    final forced = TicTacToeBot.forcedWinner(_game.cells);
+    if (forced != null) {
+      _earlyWinner = forced;
+    } else if (_game.isDeadDraw) {
+      _earlyDraw = true;
+    }
+  }
+
+  void _toggleQuickEnd() {
+    setState(() {
+      _quickEnd = !_quickEnd;
+      _detectEarlyResult();
+      _finishIfOver();
+    });
+  }
+
   void _finishIfOver() {
-    if (!_game.isOver || _resultCounted) return;
+    if (!_isGameOver || _resultCounted) return;
     _resultCounted = true;
-    final winner = _game.winner;
+    final winner = _resultWinner;
     if (winner == TicTacToePlayer.x) {
       _wins++;
     } else if (winner == TicTacToePlayer.o) {
@@ -2450,6 +2510,8 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
       _game.reset();
       _thinking = false;
       _resultCounted = false;
+      _earlyWinner = null;
+      _earlyDraw = false;
     });
   }
 
@@ -2493,7 +2555,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
       };
 
   String _status(BuildContext context) {
-    final winner = _game.winner;
+    final winner = _resultWinner;
     if (winner != null) {
       if (_mode == TicTacToeMode.twoPlayers) {
         final symbol = _symbolFor(winner);
@@ -2503,7 +2565,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
           ? tr(context, 'You win!', '你赢了！')
           : tr(context, 'You lose', '你输了');
     }
-    if (_game.isFull) return tr(context, 'Draw', '平局');
+    if (_earlyDraw || _game.isFull) return tr(context, 'Draw', '平局');
     if (_thinking) return tr(context, 'Bot is thinking…', '电脑思考中…');
     if (_mode == TicTacToeMode.twoPlayers) {
       final symbol = _symbolFor(_game.currentPlayer);
@@ -2611,6 +2673,23 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
             ],
           ),
         IconButton(
+          tooltip: _quickEnd
+              ? tr(context, 'Quick result detection: on', '快速判定胜负：开')
+              : tr(context, 'Quick result detection: off', '快速判定胜负：关'),
+          onPressed: _toggleQuickEnd,
+          isSelected: _quickEnd,
+          icon: const Icon(Icons.flash_off),
+          selectedIcon: const Icon(Icons.flash_on),
+          style: IconButton.styleFrom(
+            backgroundColor: _quickEnd
+                ? Theme.of(context).colorScheme.primaryContainer
+                : null,
+            foregroundColor: _quickEnd
+                ? Theme.of(context).colorScheme.onPrimaryContainer
+                : null,
+          ),
+        ),
+        IconButton(
           tooltip: tr(context, 'Customize symbols', '自定义符号'),
           onPressed: _editSymbols,
           icon: const Icon(Icons.edit_outlined),
@@ -2665,9 +2744,9 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
                   ),
                   const SizedBox(height: 12),
                   Opacity(
-                    opacity: _game.isOver ? 1 : 0,
+                    opacity: _isGameOver ? 1 : 0,
                     child: IgnorePointer(
-                      ignoring: !_game.isOver,
+                      ignoring: !_isGameOver,
                       child: FilledButton(
                         onPressed: _restart,
                         child: Text(tr(context, 'New game', '新的一局')),
