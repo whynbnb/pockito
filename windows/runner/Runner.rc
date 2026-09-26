@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.privateinfo" "\0"
-            VALUE "FileDescription", "Utility Kit" "\0"
+            VALUE "CompanyName", "whynbnb" "\0"
+            VALUE "FileDescription", "Reef" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "utility_kit" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.privateinfo. All rights reserved." "\0"
-            VALUE "OriginalFilename", "utility_kit.exe" "\0"
-            VALUE "ProductName", "Utility Kit" "\0"
+            VALUE "InternalName", "reef" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 whynbnb. All rights reserved." "\0"
+            VALUE "OriginalFilename", "reef.exe" "\0"
+            VALUE "ProductName", "Reef" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

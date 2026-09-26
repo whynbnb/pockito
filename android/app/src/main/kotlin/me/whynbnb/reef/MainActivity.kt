@@ -1,4 +1,4 @@
-package com.privateinfo.privacy_vault
+package me.whynbnb.reef
 
 import io.flutter.embedding.android.FlutterActivity
 

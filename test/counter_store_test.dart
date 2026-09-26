@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:privacy_vault/main.dart';
+import 'package:reef/main.dart';
 
 void main() {
   test('counter store persists counters and their records', () async {
