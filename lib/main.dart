@@ -14,7 +14,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pinyin/pinyin.dart';
-import 'package:torch_flashlight/torch_flashlight.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -2915,6 +2914,22 @@ class _SymbolDialogState extends State<_SymbolDialog> {
   );
 }
 
+class _FlashlightChannel {
+  static const _channel = MethodChannel('reef/flashlight');
+
+  static Future<bool> isAvailable() async =>
+      await _channel.invokeMethod<bool>('isAvailable') ?? false;
+
+  static Future<int> maxStrength() async =>
+      await _channel.invokeMethod<int>('getMaxStrength') ?? 0;
+
+  static Future<void> setTorch({required bool on, int? strength}) {
+    final arguments = <String, Object?>{'on': on};
+    if (strength != null) arguments['strength'] = strength;
+    return _channel.invokeMethod<void>('setTorch', arguments);
+  }
+}
+
 const Map<String, String> morseAlphabet = {
   'A': '.-',
   'B': '-...',
@@ -3077,7 +3092,6 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
   final _morseController = TextEditingController();
   late final _player = _TorchBlinkPlayer(_applyTorch);
   bool? _supported;
-  bool _capabilitySupportsStrength = false;
   int _maxStrength = 1;
   int _strength = 1;
   int _periodMs = 500;
@@ -3085,8 +3099,7 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
   String? _lastError;
   _FlashMode _mode = _FlashMode.off;
 
-  bool get _supportsStrength => _capabilitySupportsStrength && _maxStrength > 1;
-
+  bool get _supportsStrength => _maxStrength > 1;
   @override
   void initState() {
     super.initState();
@@ -3099,29 +3112,20 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
   @override
   void dispose() {
     _player.dispose();
-    unawaited(TorchFlashlight.disableTorchFlashlight().catchError((_) {}));
+    unawaited(_FlashlightChannel.setTorch(on: false).catchError((_) {}));
     _morseController.dispose();
     super.dispose();
   }
 
   Future<void> _checkSupport() async {
     var supported = false;
-    var supportsStrength = false;
-    var maxStrength = 1;
+    var maxStrength = 0;
     try {
-      supported = await TorchFlashlight.isTorchFlashlightAvailable().timeout(
-        _torchTimeout,
-      );
+      supported = await _FlashlightChannel.isAvailable().timeout(_torchTimeout);
       if (supported) {
-        final capabilities = await TorchFlashlight.getCapabilities().timeout(
+        maxStrength = await _FlashlightChannel.maxStrength().timeout(
           _torchTimeout,
         );
-        supportsStrength = capabilities.supportsStrength;
-        if (supportsStrength) {
-          maxStrength = await TorchFlashlight.getMaxTorchStrength().timeout(
-            _torchTimeout,
-          );
-        }
       }
     } catch (_) {
       supported = false;
@@ -3129,9 +3133,8 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
     if (!mounted) return;
     setState(() {
       _supported = supported;
-      _maxStrength = maxStrength < 1 ? 1 : maxStrength;
-      _capabilitySupportsStrength = supportsStrength;
-      _strength = _maxStrength;
+      _maxStrength = maxStrength;
+      _strength = maxStrength < 1 ? 1 : maxStrength;
     });
   }
 
@@ -3141,18 +3144,10 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
 
   Future<String?> _applyTorchInternal(bool on) async {
     try {
-      if (on) {
-        if (_supportsStrength) {
-          // turnOnTorchWithStrengthLevel also turns the torch on, so avoid
-          // mixing it with setTorchMode which resets the level.
-          await TorchFlashlight.setTorchStrength(_strength)
-              .timeout(_torchTimeout);
-        } else {
-          await TorchFlashlight.enableTorchFlashlight().timeout(_torchTimeout);
-        }
-      } else {
-        await TorchFlashlight.disableTorchFlashlight().timeout(_torchTimeout);
-      }
+      await _FlashlightChannel.setTorch(
+        on: on,
+        strength: on && _supportsStrength ? _strength : null,
+      ).timeout(_torchTimeout);
       return null;
     } catch (error) {
       return error.toString();
@@ -3251,8 +3246,8 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
               Text(
                 tr(
                   context,
-                  'Platform: ${Platform.operatingSystem} • brightness: ${_capabilitySupportsStrength ? 'reported' : 'not reported'} • max level: $_maxStrength',
-                  '平台：${Platform.operatingSystem} • 亮度支持：${_capabilitySupportsStrength ? '已报告' : '未报告'} • 最大级别：$_maxStrength',
+                  'Platform: ${Platform.operatingSystem} • torch brightness levels: $_maxStrength',
+                  '平台：${Platform.operatingSystem} • 手电筒亮度级别：$_maxStrength',
                 ),
                 style: theme.textTheme.bodySmall,
               ),
@@ -3337,7 +3332,7 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
             ] else ...[
               const SizedBox(height: 12),
               Text(
-                _capabilitySupportsStrength
+                _maxStrength == 1
                     ? tr(
                         context,
                         'This device reports a single brightness level, so the torch can only be on or off.',
@@ -3345,8 +3340,8 @@ class _FlashlightScreenState extends State<FlashlightScreen> {
                       )
                     : tr(
                         context,
-                        'Brightness control requires Android 13+ or iOS 14+.',
-                        '亮度控制需要 Android 13+ 或 iOS 14+。',
+                        'Brightness control requires Android 13+.',
+                        '亮度控制需要 Android 13+。',
                       ),
                 style: Theme.of(context).textTheme.bodySmall,
               ),

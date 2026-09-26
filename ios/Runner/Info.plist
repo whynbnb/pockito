@@ -18,6 +18,8 @@
 	<string>Reef</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Use Face ID to unlock your private notes.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Control the device flashlight.</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

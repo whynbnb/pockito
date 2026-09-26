@@ -42,7 +42,6 @@ dependencies:
   path_provider: ^2.1.6
   file_picker: ^12.2.0
   pinyin: ^3.3.0
-  torch_flashlight: ^0.0.3
 
 dev_dependencies:
   flutter_test:
