@@ -316,24 +316,53 @@ class _ToolTile extends StatelessWidget {
   );
 }
 
+class CounterRecord {
+  CounterRecord({required this.time, required this.delta, required this.value});
+
+  final DateTime time;
+  final int delta;
+  final int value;
+
+  Map<String, dynamic> toJson() => {
+    'time': time.toIso8601String(),
+    'delta': delta,
+    'value': value,
+  };
+
+  factory CounterRecord.fromJson(Map<String, dynamic> json) => CounterRecord(
+    time: DateTime.tryParse(json['time'] as String? ?? '') ?? DateTime.now(),
+    delta: (json['delta'] as num?)?.toInt() ?? 0,
+    value: (json['value'] as num?)?.toInt() ?? 0,
+  );
+}
+
+String formatTimestamp(DateTime time) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${time.year}-${two(time.month)}-${two(time.day)} '
+      '${two(time.hour)}:${two(time.minute)}:${two(time.second)}';
+}
+
 class CounterItem {
   CounterItem({
     required this.id,
     required this.name,
     required this.count,
     required this.updatedAt,
-  });
+    List<CounterRecord>? records,
+  }) : records = records ?? [];
 
   final String id;
   String name;
   int count;
   DateTime updatedAt;
+  final List<CounterRecord> records;
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
     'count': count,
     'updatedAt': updatedAt.toIso8601String(),
+    'records': records.map((record) => record.toJson()).toList(),
   };
 
   factory CounterItem.fromJson(Map<String, dynamic> json) => CounterItem(
@@ -342,6 +371,12 @@ class CounterItem {
     count: (json['count'] as num?)?.toInt() ?? 0,
     updatedAt:
         DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? DateTime.now(),
+    records: (json['records'] as List?)
+        ?.whereType<Map>()
+        .map(
+          (entry) => CounterRecord.fromJson(Map<String, dynamic>.from(entry)),
+        )
+        .toList(),
   );
 }
 
@@ -463,6 +498,18 @@ class _CounterScreenState extends State<CounterScreen> {
   String _newId() =>
       '${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 31)}';
 
+  static const _maxRecords = 500;
+
+  void _record(CounterItem item, int delta) {
+    if (delta == 0) return;
+    item.records.add(
+      CounterRecord(time: DateTime.now(), delta: delta, value: item.count),
+    );
+    if (item.records.length > _maxRecords) {
+      item.records.removeRange(0, item.records.length - _maxRecords);
+    }
+  }
+
   Future<String?> _promptText({
     required String title,
     required String label,
@@ -499,6 +546,7 @@ class _CounterScreenState extends State<CounterScreen> {
     setState(() {
       item.count += 1;
       item.updatedAt = DateTime.now();
+      _record(item, 1);
     });
     _persist();
   }
@@ -508,6 +556,7 @@ class _CounterScreenState extends State<CounterScreen> {
     setState(() {
       item.count -= 1;
       item.updatedAt = DateTime.now();
+      _record(item, -1);
     });
     _persist();
   }
@@ -536,16 +585,21 @@ class _CounterScreenState extends State<CounterScreen> {
     final parsed = int.tryParse(value);
     if (parsed == null) return;
     setState(() {
+      final delta = parsed - item.count;
       item.count = parsed;
       item.updatedAt = DateTime.now();
+      _record(item, delta);
     });
     _persist();
   }
 
   void _reset(CounterItem item) {
+    if (item.count == 0) return;
     setState(() {
+      final delta = -item.count;
       item.count = 0;
       item.updatedAt = DateTime.now();
+      _record(item, delta);
     });
     _persist();
   }
@@ -577,6 +631,14 @@ class _CounterScreenState extends State<CounterScreen> {
     if (confirmed != true) return;
     setState(() => _items.remove(item));
     _persist();
+  }
+
+  void _openHistory(CounterItem item) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CounterHistoryScreen(item: item, onChanged: _persist),
+      ),
+    );
   }
 
   @override
@@ -625,6 +687,7 @@ class _CounterScreenState extends State<CounterScreen> {
                         item: item,
                         onIncrement: () => _increment(item),
                         onDecrement: () => _decrement(item),
+                        onHistory: () => _openHistory(item),
                         onRename: () => _rename(item),
                         onEditValue: () => _editValue(item),
                         onReset: () => _reset(item),
@@ -644,6 +707,7 @@ class _CounterCard extends StatelessWidget {
     required this.item,
     required this.onIncrement,
     required this.onDecrement,
+    required this.onHistory,
     required this.onRename,
     required this.onEditValue,
     required this.onReset,
@@ -653,6 +717,7 @@ class _CounterCard extends StatelessWidget {
   final CounterItem item;
   final VoidCallback onIncrement;
   final VoidCallback onDecrement;
+  final VoidCallback onHistory;
   final VoidCallback onRename;
   final VoidCallback onEditValue;
   final VoidCallback onReset;
@@ -676,10 +741,17 @@ class _CounterCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                IconButton(
+                  tooltip: tr(context, 'History', '计数记录'),
+                  onPressed: onHistory,
+                  icon: const Icon(Icons.history),
+                ),
                 PopupMenuButton<String>(
                   tooltip: tr(context, 'Counter actions', '计数器操作'),
                   onSelected: (value) {
                     switch (value) {
+                      case 'history':
+                        onHistory();
                       case 'rename':
                         onRename();
                       case 'value':
@@ -691,6 +763,10 @@ class _CounterCard extends StatelessWidget {
                     }
                   },
                   itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'history',
+                      child: Text(tr(context, 'History', '计数记录')),
+                    ),
                     PopupMenuItem(
                       value: 'rename',
                       child: Text(tr(context, 'Rename', '重命名')),
@@ -753,6 +829,123 @@ class _CounterCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class CounterHistoryScreen extends StatefulWidget {
+  const CounterHistoryScreen({
+    super.key,
+    required this.item,
+    required this.onChanged,
+  });
+
+  final CounterItem item;
+  final VoidCallback onChanged;
+
+  @override
+  State<CounterHistoryScreen> createState() => _CounterHistoryScreenState();
+}
+
+class _CounterHistoryScreenState extends State<CounterHistoryScreen> {
+  Future<void> _clear() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Clear records', '清除记录')),
+        content: Text(
+          tr(
+            context,
+            'Clear all records for "${widget.item.name}"?',
+            '清除“${widget.item.name}”的全部记录？',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(tr(context, 'Cancel', '取消')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(tr(context, 'Clear', '清除')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    widget.item.records.clear();
+    widget.onChanged();
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final records = widget.item.records;
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(tr(context, 'Counter history', '计数记录')),
+        actions: [
+          if (records.isNotEmpty)
+            IconButton(
+              tooltip: tr(context, 'Clear records', '清除记录'),
+              onPressed: _clear,
+              icon: const Icon(Icons.delete_sweep_outlined),
+            ),
+        ],
+      ),
+      body: records.isEmpty
+          ? Center(
+              child: Text(
+                tr(context, 'No records yet.', '还没有记录。'),
+                style: theme.textTheme.titleMedium,
+              ),
+            )
+          : ListView.separated(
+              itemCount: records.length + 1,
+              separatorBuilder: (context, index) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      widget.item.name,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    subtitle: Text(
+                      tr(
+                        context,
+                        'Current: ${widget.item.count}',
+                        '当前：${widget.item.count}',
+                      ),
+                    ),
+                  );
+                }
+                final record = records[records.length - index];
+                final positive = record.delta > 0;
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: positive
+                        ? theme.colorScheme.primaryContainer
+                        : theme.colorScheme.errorContainer,
+                    foregroundColor: positive
+                        ? theme.colorScheme.onPrimaryContainer
+                        : theme.colorScheme.onErrorContainer,
+                    child: Text(
+                      positive ? '+${record.delta}' : '${record.delta}',
+                    ),
+                  ),
+                  title: Text(formatTimestamp(record.time)),
+                  subtitle: Text(
+                    tr(
+                      context,
+                      'Total after: ${record.value}',
+                      '变更后：${record.value}',
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

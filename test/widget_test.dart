@@ -75,4 +75,27 @@ void main() {
 
     expect(find.text('1'), findsOneWidget);
   });
+
+  testWidgets('records counter history', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('+1 Counter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('New counter'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.enterText(find.byType(TextField), 'Water');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Add one'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('History'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Counter history'), findsOneWidget);
+    expect(find.text('Total after: 1'), findsOneWidget);
+  });
 }
