@@ -71,6 +71,19 @@ void main() {
     expect(find.text('Password Generator'), findsNothing);
   });
 
+  testWidgets('encodes text with the Basexx tool', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Basexx'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'Hello');
+    await tester.tap(find.text('Encode'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('SGVsbG8='), findsOneWidget);
+  });
+
   testWidgets('counts custom events with the +1 tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 

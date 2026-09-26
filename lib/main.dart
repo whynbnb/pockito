@@ -335,6 +335,17 @@ class HomeScreen extends StatelessWidget {
               ),
               onTap: () => _open(context, const CounterScreen()),
             ),
+            const SizedBox(height: 12),
+            _ToolTile(
+              icon: Icons.transform,
+              title: tr(context, 'Basexx', 'Base 编解码'),
+              subtitle: tr(
+                context,
+                'Encode and decode Base16, Base32, Base58 and Base64.',
+                '在 Base16、Base32、Base58 和 Base64 之间编解码。',
+              ),
+              onTap: () => _open(context, const BaseCodecScreen()),
+            ),
           ],
         ),
       ),
@@ -1055,6 +1066,368 @@ class _EmptyCounters extends StatelessWidget {
       ),
     ),
   );
+}
+
+enum BaseVariant { base16, base32, base58, base64, base64Url }
+
+class BaseCodec {
+  static const _base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  static const _base58Alphabet =
+      '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+  static String encode(BaseVariant variant, List<int> bytes) =>
+      switch (variant) {
+        BaseVariant.base16 => _hexEncode(bytes),
+        BaseVariant.base32 => _base32Encode(bytes),
+        BaseVariant.base58 => _base58Encode(bytes),
+        BaseVariant.base64 => base64Encode(bytes),
+        BaseVariant.base64Url => base64UrlEncode(bytes),
+      };
+
+  static List<int> decode(BaseVariant variant, String text) =>
+      switch (variant) {
+        BaseVariant.base16 => _hexDecode(text),
+        BaseVariant.base32 => _base32Decode(text),
+        BaseVariant.base58 => _base58Decode(text),
+        BaseVariant.base64 => base64Decode(_stripWhitespace(text)),
+        BaseVariant.base64Url => base64Url.decode(
+          base64Url.normalize(_stripWhitespace(text)),
+        ),
+      };
+
+  static String _stripWhitespace(String text) =>
+      text.replaceAll(RegExp(r'\s+'), '');
+
+  static String _hexEncode(List<int> bytes) =>
+      bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+
+  static List<int> _hexDecode(String text) {
+    final cleaned = _stripWhitespace(text).toLowerCase();
+    if (cleaned.length.isOdd) {
+      throw const FormatException('Base16 input must have an even length');
+    }
+    final result = <int>[];
+    for (var index = 0; index < cleaned.length; index += 2) {
+      final byte = int.tryParse(cleaned.substring(index, index + 2), radix: 16);
+      if (byte == null) {
+        throw const FormatException('Invalid Base16 character');
+      }
+      result.add(byte);
+    }
+    return result;
+  }
+
+  static String _base32Encode(List<int> bytes) {
+    if (bytes.isEmpty) return '';
+    final buffer = StringBuffer();
+    var bits = 0;
+    var value = 0;
+    for (final byte in bytes) {
+      value = (value << 8) | byte;
+      bits += 8;
+      while (bits >= 5) {
+        buffer.write(_base32Alphabet[(value >> (bits - 5)) & 0x1f]);
+        bits -= 5;
+      }
+    }
+    if (bits > 0) {
+      buffer.write(_base32Alphabet[(value << (5 - bits)) & 0x1f]);
+    }
+    while (buffer.length % 8 != 0) {
+      buffer.write('=');
+    }
+    return buffer.toString();
+  }
+
+  static List<int> _base32Decode(String text) {
+    final cleaned = _stripWhitespace(text).toUpperCase().replaceAll('=', '');
+    final result = <int>[];
+    var bits = 0;
+    var value = 0;
+    for (final character in cleaned.split('')) {
+      final index = _base32Alphabet.indexOf(character);
+      if (index < 0) {
+        throw const FormatException('Invalid Base32 character');
+      }
+      value = (value << 5) | index;
+      bits += 5;
+      if (bits >= 8) {
+        result.add((value >> (bits - 8)) & 0xff);
+        bits -= 8;
+      }
+    }
+    return result;
+  }
+
+  static String _base58Encode(List<int> bytes) {
+    if (bytes.isEmpty) return '';
+    var zeros = 0;
+    while (zeros < bytes.length && bytes[zeros] == 0) {
+      zeros++;
+    }
+    final digits = <int>[];
+    for (var index = zeros; index < bytes.length; index++) {
+      var carry = bytes[index];
+      for (var digit = 0; digit < digits.length; digit++) {
+        carry += digits[digit] << 8;
+        digits[digit] = carry % 58;
+        carry ~/= 58;
+      }
+      while (carry > 0) {
+        digits.add(carry % 58);
+        carry ~/= 58;
+      }
+    }
+    final buffer = StringBuffer();
+    for (var index = 0; index < zeros; index++) {
+      buffer.write(_base58Alphabet[0]);
+    }
+    for (var index = digits.length - 1; index >= 0; index--) {
+      buffer.write(_base58Alphabet[digits[index]]);
+    }
+    return buffer.toString();
+  }
+
+  static List<int> _base58Decode(String text) {
+    final cleaned = _stripWhitespace(text);
+    if (cleaned.isEmpty) return [];
+    var zeros = 0;
+    while (zeros < cleaned.length && cleaned[zeros] == _base58Alphabet[0]) {
+      zeros++;
+    }
+    final bytes = <int>[];
+    for (var index = zeros; index < cleaned.length; index++) {
+      final value = _base58Alphabet.indexOf(cleaned[index]);
+      if (value < 0) {
+        throw const FormatException('Invalid Base58 character');
+      }
+      var carry = value;
+      for (var byte = 0; byte < bytes.length; byte++) {
+        carry += bytes[byte] * 58;
+        bytes[byte] = carry & 0xff;
+        carry >>= 8;
+      }
+      while (carry > 0) {
+        bytes.add(carry & 0xff);
+        carry >>= 8;
+      }
+    }
+    final result = <int>[];
+    for (var index = 0; index < zeros; index++) {
+      result.add(0);
+    }
+    for (var index = bytes.length - 1; index >= 0; index--) {
+      result.add(bytes[index]);
+    }
+    return result;
+  }
+}
+
+class BaseCodecScreen extends StatefulWidget {
+  const BaseCodecScreen({super.key});
+  @override
+  State<BaseCodecScreen> createState() => _BaseCodecScreenState();
+}
+
+class _BaseCodecScreenState extends State<BaseCodecScreen> {
+  final _input = TextEditingController();
+  final _output = TextEditingController();
+  BaseVariant _variant = BaseVariant.base64;
+  String? _error;
+
+  @override
+  void dispose() {
+    _input.dispose();
+    _output.dispose();
+    super.dispose();
+  }
+
+  static String _variantLabel(BaseVariant variant) => switch (variant) {
+    BaseVariant.base16 => 'Base16',
+    BaseVariant.base32 => 'Base32',
+    BaseVariant.base58 => 'Base58',
+    BaseVariant.base64 => 'Base64',
+    BaseVariant.base64Url => 'Base64 URL',
+  };
+
+  void _encode() {
+    setState(() {
+      try {
+        _output.text = BaseCodec.encode(_variant, utf8.encode(_input.text));
+        _error = null;
+      } on FormatException {
+        _output.text = '';
+        _error = tr(
+          context,
+          'Invalid input for the selected base.',
+          '输入不符合所选进制。',
+        );
+      }
+    });
+  }
+
+  void _decode() {
+    setState(() {
+      try {
+        _output.text = utf8.decode(BaseCodec.decode(_variant, _input.text));
+        _error = null;
+      } on FormatException {
+        _output.text = '';
+        _error = tr(
+          context,
+          'Invalid input for the selected base.',
+          '输入不符合所选进制。',
+        );
+      }
+    });
+  }
+
+  void _swap() {
+    setState(() {
+      final previous = _output.text;
+      _output.text = _input.text;
+      _input.text = previous;
+      _error = null;
+    });
+  }
+
+  void _clear() {
+    setState(() {
+      _input.clear();
+      _output.clear();
+      _error = null;
+    });
+  }
+
+  Future<void> _copy() async {
+    if (_output.text.isEmpty) return;
+    final message = tr(context, 'Copied', '已复制');
+    final messenger = ScaffoldMessenger.of(context);
+    await Clipboard.setData(ClipboardData(text: _output.text));
+    if (!mounted) return;
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(tr(context, 'Basexx', 'Base 编解码'))),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  tr(context, 'Base', '进制'),
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: BaseVariant.values
+                      .map(
+                        (variant) => ChoiceChip(
+                          label: Text(_variantLabel(variant)),
+                          selected: _variant == variant,
+                          onSelected: (_) => setState(() => _variant = variant),
+                        ),
+                      )
+                      .toList(),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _input,
+                  minLines: 3,
+                  maxLines: 8,
+                  style: const TextStyle(fontFamily: 'monospace'),
+                  decoration: InputDecoration(
+                    labelText: tr(context, 'Input', '输入'),
+                    hintText: tr(
+                      context,
+                      'Enter text or an encoded value',
+                      '输入文本或编码值',
+                    ),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _encode,
+                        child: Text(tr(context, 'Encode', '编码')),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton.tonal(
+                        onPressed: _decode,
+                        child: Text(tr(context, 'Decode', '解码')),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _swap,
+                        icon: const Icon(Icons.swap_vert),
+                        label: Text(tr(context, 'Swap', '互换')),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _clear,
+                        icon: const Icon(Icons.clear),
+                        label: Text(tr(context, 'Clear', '清空')),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    _error!,
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _output,
+                  readOnly: true,
+                  minLines: 3,
+                  maxLines: 8,
+                  style: const TextStyle(fontFamily: 'monospace'),
+                  decoration: InputDecoration(
+                    labelText: tr(context, 'Output', '输出'),
+                    hintText: tr(context, 'Result appears here', '结果会显示在这里'),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _output.text.isEmpty ? null : _copy,
+                    icon: const Icon(Icons.copy),
+                    label: Text(tr(context, 'Copy', '复制')),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class VaultNote {
