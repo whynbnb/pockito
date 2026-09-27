@@ -408,6 +408,19 @@ void main() {
     expect(find.text('5'), findsNWidgets(2));
   });
 
+  testWidgets('shows game counter acknowledgements', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Game Counter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Acknowledgements'), findsOneWidget);
+    expect(find.textContaining('open-source gamecounter'), findsOneWidget);
+  });
+
   testWidgets('switches game scenes from the app bar', (tester) async {
     await tester.pumpWidget(const VaultApp());
 

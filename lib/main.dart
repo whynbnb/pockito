@@ -436,6 +436,45 @@ Future<void> showCountersAcknowledgements(BuildContext context) =>
       ),
     );
 
+Future<void> showGameCounterAcknowledgements(BuildContext context) =>
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Acknowledgements', '致谢')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                tr(
+                  context,
+                  'The game counter tool is inspired by the open-source gamecounter by multun.',
+                  '游戏计数器工具的界面与思路灵感来自 multun 的开源项目 gamecounter。',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                tr(
+                  context,
+                  'License: GNU General Public License v3.0',
+                  '许可证：GNU General Public License v3.0',
+                ),
+              ),
+              const SizedBox(height: 8),
+              const SelectableText('https://github.com/multun/gamecounter'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr(context, 'Close', '关闭')),
+          ),
+        ],
+      ),
+    );
+
 Future<void> openVault(BuildContext context) async {
   final store = VaultStore();
   await store.initialize();
@@ -1767,6 +1806,11 @@ class _GameCounterScreenState extends State<GameCounterScreen> {
             tooltip: tr(context, 'Settings', '设置'),
             onPressed: _openSettings,
             icon: const Icon(Icons.tune),
+          ),
+          IconButton(
+            tooltip: tr(context, 'Acknowledgements', '致谢'),
+            onPressed: () => showGameCounterAcknowledgements(context),
+            icon: const Icon(Icons.info_outline),
           ),
         ],
       ),
