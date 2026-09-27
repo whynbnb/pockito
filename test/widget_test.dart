@@ -230,6 +230,28 @@ void main() {
     expect(find.textContaining('FlashDim'), findsOneWidget);
   });
 
+  testWidgets('opens the vibrator tool and previews patterns', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.scrollUntilVisible(find.text('Vibrator'), 200.0);
+    await tester.tap(find.text('Vibrator'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(VibratorScreen), findsOneWidget);
+    expect(find.textContaining('No vibration motor'), findsOneWidget);
+    expect(find.text('Tap'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Custom pattern'),
+      200.0,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.enterText(find.byType(TextField), '200, 100');
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('total 300 ms'), findsOneWidget);
+  });
+
   testWidgets('shows counter acknowledgements', (tester) async {
     await tester.pumpWidget(const VaultApp());
 

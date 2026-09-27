@@ -420,6 +420,16 @@ const toolInfos = <ToolInfo>[
     englishNote: 'Requires a device with a camera flash. Desktop platforms fall back to Morse code only.',
     chineseNote: '需要带闪光灯的设备；桌面平台仅保留摩尔斯电码功能。',
   ),
+  ToolInfo(
+    id: 'vibrator',
+    icon: Icons.vibration,
+    englishTitle: 'Vibrator',
+    chineseTitle: '震动器',
+    englishSubtitle: 'Play built-in or custom vibration patterns.',
+    chineseSubtitle: '按内置或自定义模式震动。',
+    englishNote: 'Requires a device with a vibration motor. Desktop platforms have no vibration hardware.',
+    chineseNote: '需要带震动马达的设备；桌面平台没有震动硬件。',
+  ),
 ];
 
 ToolInfo? toolInfoById(String id) {
@@ -601,6 +611,7 @@ class HomeScreen extends StatelessWidget {
     '2048' => const Game2048Screen(),
     'tic-tac-toe' => const TicTacToeScreen(),
     'flashlight' => const FlashlightScreen(),
+    'vibrator' => const VibratorScreen(),
     _ => null,
   };
 
@@ -5232,6 +5243,568 @@ class _FlashlightScreenState extends State<FlashlightScreen>
                     const SizedBox(height: 16),
                   ],
                   _morseSection(context),
+                ],
+              ),
+      ),
+    ),
+  );
+}
+
+class VibrationPreset {
+  const VibrationPreset({
+    required this.id,
+    required this.englishName,
+    required this.chineseName,
+    required this.pattern,
+  });
+
+  final String id;
+  final String englishName;
+  final String chineseName;
+  final List<int> pattern;
+}
+
+const vibrationPresets = <VibrationPreset>[
+  VibrationPreset(
+    id: 'tap',
+    englishName: 'Tap',
+    chineseName: '轻点',
+    pattern: [80],
+  ),
+  VibrationPreset(
+    id: 'double',
+    englishName: 'Double',
+    chineseName: '双击',
+    pattern: [80, 80, 80],
+  ),
+  VibrationPreset(
+    id: 'triple',
+    englishName: 'Triple',
+    chineseName: '三连击',
+    pattern: [80, 80, 80, 80, 80],
+  ),
+  VibrationPreset(
+    id: 'long',
+    englishName: 'Long',
+    chineseName: '长震',
+    pattern: [600],
+  ),
+  VibrationPreset(
+    id: 'heartbeat',
+    englishName: 'Heartbeat',
+    chineseName: '心跳',
+    pattern: [120, 100, 120, 500],
+  ),
+  VibrationPreset(
+    id: 'sos',
+    englishName: 'SOS',
+    chineseName: 'SOS',
+    pattern: [
+      120,
+      120,
+      120,
+      120,
+      120,
+      360,
+      360,
+      120,
+      360,
+      120,
+      360,
+      360,
+      120,
+      120,
+      120,
+      120,
+      120,
+      720,
+    ],
+  ),
+  VibrationPreset(
+    id: 'ripple',
+    englishName: 'Ripple',
+    chineseName: '涟漪',
+    pattern: [60, 80, 120, 80, 180, 80, 240, 80, 180, 80, 120, 80, 60],
+  ),
+  VibrationPreset(
+    id: 'tick',
+    englishName: 'Tick tock',
+    chineseName: '滴答',
+    pattern: [50, 450, 80, 450],
+  ),
+  VibrationPreset(
+    id: 'alarm',
+    englishName: 'Alarm',
+    chineseName: '警报',
+    pattern: [400, 150, 400, 150, 400, 150, 400, 600],
+  ),
+];
+
+List<int>? parseVibrationPattern(String input) {
+  final parts = input
+      .split(RegExp(r'[,\s]+'))
+      .where((part) => part.isNotEmpty)
+      .toList();
+  if (parts.isEmpty || parts.length > 64) return null;
+  final values = <int>[];
+  for (final part in parts) {
+    final value = int.tryParse(part);
+    if (value == null || value <= 0 || value > 60000) return null;
+    values.add(value);
+  }
+  return values;
+}
+
+int vibrationPatternDuration(List<int> pattern) =>
+    pattern.fold(0, (total, segment) => total + segment);
+
+String formatVibrationPattern(List<int> pattern) => pattern.join(', ');
+
+enum VibrationStyle { soft, standard, crisp }
+
+double vibrationSharpness(VibrationStyle style) => switch (style) {
+  VibrationStyle.soft => 0.1,
+  VibrationStyle.standard => 0.5,
+  VibrationStyle.crisp => 1.0,
+};
+
+List<int> applyVibrationStyle(List<int> pattern, VibrationStyle style) {
+  if (style != VibrationStyle.crisp) return pattern;
+  const click = 20;
+  return [
+    for (var index = 0; index < pattern.length; index++)
+      index.isEven ? min(pattern[index], click) : pattern[index],
+  ];
+}
+
+class _VibratorChannel {
+  static const _channel = MethodChannel('pockito/vibrator');
+
+  static Future<bool> isAvailable() async =>
+      await _channel.invokeMethod<bool>('isAvailable') ?? false;
+
+  static Future<bool> hasAmplitudeControl() async =>
+      await _channel.invokeMethod<bool>('hasAmplitudeControl') ?? false;
+
+  static Future<void> vibrate({
+    required List<int> pattern,
+    int repeat = -1,
+    int amplitude = -1,
+    double sharpness = 0.5,
+  }) => _channel.invokeMethod<void>('vibrate', {
+    'pattern': pattern,
+    'repeat': repeat,
+    'amplitude': amplitude,
+    'sharpness': sharpness,
+  });
+
+  static Future<void> cancel() => _channel.invokeMethod<void>('cancel');
+}
+
+class VibratorScreen extends StatefulWidget {
+  const VibratorScreen({super.key});
+  @override
+  State<VibratorScreen> createState() => _VibratorScreenState();
+}
+
+class _VibratorScreenState extends State<VibratorScreen>
+    with WidgetsBindingObserver {
+  static const _timeout = Duration(seconds: 2);
+  final _customController = TextEditingController();
+  bool? _supported;
+  bool _hasAmplitude = false;
+  int _amplitude = 255;
+  bool _loop = false;
+  VibrationStyle _style = VibrationStyle.standard;
+  bool _playing = false;
+  String? _activeId;
+  String? _lastError;
+  List<int>? _customPattern;
+  String? _customError;
+  Timer? _finishTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _checkSupport();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _finishTimer?.cancel();
+    unawaited(_VibratorChannel.cancel().catchError((_) {}));
+    _customController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _stop();
+    }
+  }
+
+  Future<void> _checkSupport() async {
+    var supported = false;
+    var amplitude = false;
+    try {
+      supported = await _VibratorChannel.isAvailable().timeout(_timeout);
+      if (supported) {
+        amplitude = await _VibratorChannel.hasAmplitudeControl().timeout(
+          _timeout,
+        );
+      }
+    } catch (_) {
+      supported = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _supported = supported;
+      _hasAmplitude = amplitude;
+    });
+  }
+
+  void _play(List<int> pattern, String id) {
+    if (pattern.isEmpty) return;
+    final played = applyVibrationStyle(pattern, _style);
+    _finishTimer?.cancel();
+    setState(() {
+      _playing = true;
+      _activeId = id;
+      _lastError = null;
+    });
+    unawaited(
+      _VibratorChannel.vibrate(
+            pattern: played,
+            repeat: _loop ? 0 : -1,
+            amplitude: _hasAmplitude ? _amplitude : -1,
+            sharpness: vibrationSharpness(_style),
+          )
+          .then((_) {
+            if (!mounted || _loop) return;
+          })
+          .catchError((Object error) {
+            if (!mounted) return;
+            setState(() {
+              _playing = false;
+              _activeId = null;
+              _lastError = error.toString();
+            });
+          }),
+    );
+    if (!_loop) {
+      _finishTimer = Timer(
+        Duration(milliseconds: vibrationPatternDuration(played) + 50),
+        () {
+          if (!mounted) return;
+          setState(() {
+            _playing = false;
+            _activeId = null;
+          });
+        },
+      );
+    }
+  }
+
+  void _playPreset(VibrationPreset preset) =>
+      _play(preset.pattern, 'preset:${preset.id}');
+
+  void _playCustom() {
+    final pattern = _customPattern;
+    if (pattern == null || pattern.isEmpty) return;
+    _play(pattern, 'custom');
+  }
+
+  void _stop() {
+    _finishTimer?.cancel();
+    _finishTimer = null;
+    unawaited(_VibratorChannel.cancel().catchError((_) {}));
+    if (!mounted) return;
+    setState(() {
+      _playing = false;
+      _activeId = null;
+    });
+  }
+
+  Widget _supportCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final supported = _supported == true;
+    return Card(
+      color: supported
+          ? theme.colorScheme.secondaryContainer
+          : theme.colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(supported ? Icons.vibration : Icons.phonelink_erase),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    supported
+                        ? tr(
+                            context,
+                            'Vibration motor detected on this device.',
+                            '已检测到本机震动马达。',
+                          )
+                        : tr(
+                            context,
+                            'No vibration motor detected on this device. Patterns are shown for reference but cannot be played.',
+                            '未检测到本机震动马达。下方模式仅作预览，无法播放。',
+                          ),
+                  ),
+                ),
+              ],
+            ),
+            if (supported) ...[
+              const SizedBox(height: 8),
+              Text(
+                tr(
+                  context,
+                  'Platform: ${Platform.operatingSystem} • amplitude control: ${_hasAmplitude ? 'yes' : 'no'}',
+                  '平台：${Platform.operatingSystem} • 振幅控制：${_hasAmplitude ? '支持' : '不支持'}',
+                ),
+                style: theme.textTheme.bodySmall,
+              ),
+              if (_lastError != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  tr(context, 'Last error: $_lastError', '最近错误：$_lastError'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _presetsSection(BuildContext context) {
+    final enabled = _supported == true;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr(context, 'Patterns', '震动模式'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final preset in vibrationPresets)
+                  ChoiceChip(
+                    label: Text(
+                      tr(context, preset.englishName, preset.chineseName),
+                    ),
+                    selected: _activeId == 'preset:${preset.id}',
+                    onSelected: enabled ? (_) => _playPreset(preset) : null,
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _customSection(BuildContext context) {
+    final enabled = _supported == true;
+    final pattern = _customPattern;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr(context, 'Custom pattern', '自定义模式'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _customController,
+              onChanged: (value) {
+                final parsed = parseVibrationPattern(value);
+                setState(() {
+                  _customPattern = parsed;
+                  _customError = value.trim().isEmpty || parsed != null
+                      ? null
+                      : tr(
+                          context,
+                          'Enter positive durations in milliseconds separated by commas.',
+                          '请输入以逗号分隔的正整数毫秒时长。',
+                        );
+                });
+              },
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: tr(
+                  context,
+                  'Pulse and pause durations in ms',
+                  '震动与间隔时长（毫秒）',
+                ),
+                hintText: '200, 100, 200, 100, 500',
+                border: const OutlineInputBorder(),
+                errorText: _customError,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              pattern == null
+                  ? tr(
+                      context,
+                      'The first value vibrates, the next pauses, and so on.',
+                      '第一个数值震动，第二个数值停顿，依次交替。',
+                    )
+                  : tr(
+                      context,
+                      '${formatVibrationPattern(pattern)} • total ${vibrationPatternDuration(pattern)} ms',
+                      '${formatVibrationPattern(pattern)} • 合计 ${vibrationPatternDuration(pattern)} 毫秒',
+                    ),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: enabled && pattern != null && pattern.isNotEmpty
+                  ? _playCustom
+                  : null,
+              icon: const Icon(Icons.play_arrow),
+              label: Text(tr(context, 'Play', '播放')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _optionsSection(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr(context, 'Options', '选项'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Text(tr(context, 'Vibration style', '震动风格')),
+            const SizedBox(height: 8),
+            SegmentedButton<VibrationStyle>(
+              segments: [
+                ButtonSegment(
+                  value: VibrationStyle.soft,
+                  label: Text(tr(context, 'Soft', '柔和')),
+                  icon: const Icon(Icons.waves),
+                ),
+                ButtonSegment(
+                  value: VibrationStyle.standard,
+                  label: Text(tr(context, 'Standard', '标准')),
+                  icon: const Icon(Icons.horizontal_rule),
+                ),
+                ButtonSegment(
+                  value: VibrationStyle.crisp,
+                  label: Text(tr(context, 'Crisp', '哒哒哒')),
+                  icon: const Icon(Icons.more_horiz),
+                ),
+              ],
+              selected: {_style},
+              onSelectionChanged: (selection) =>
+                  setState(() => _style = selection.first),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Loop', '循环')),
+              subtitle: Text(
+                tr(
+                  context,
+                  'Repeat the pattern until stopped.',
+                  '持续重复，直到手动停止。',
+                ),
+              ),
+              value: _loop,
+              onChanged: (value) => setState(() => _loop = value),
+            ),
+            if (_hasAmplitude) ...[
+              const Divider(),
+              Text(
+                tr(
+                  context,
+                  'Strength ${(_amplitude * 100 / 255).round()}%',
+                  '强度 ${(_amplitude * 100 / 255).round()}%',
+                ),
+              ),
+              Slider(
+                value: _amplitude.toDouble(),
+                min: 1,
+                max: 255,
+                divisions: 254,
+                label: '${(_amplitude * 100 / 255).round()}%',
+                onChanged: (value) =>
+                    setState(() => _amplitude = value.round()),
+              ),
+            ] else
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  tr(
+                    context,
+                    'Amplitude control requires a device that supports it (usually Android 8+).',
+                    '振幅控制需要设备支持（通常为 Android 8+）。',
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(tr(context, 'Vibrator', '震动器')),
+      actions: [
+        if (_supported == true)
+          IconButton(
+            tooltip: tr(context, 'Stop', '停止'),
+            onPressed: _playing ? _stop : null,
+            icon: const Icon(Icons.stop_circle_outlined),
+          ),
+      ],
+    ),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: _supported == null
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+                children: [
+                  _supportCard(context),
+                  const SizedBox(height: 16),
+                  _presetsSection(context),
+                  const SizedBox(height: 16),
+                  _customSection(context),
+                  const SizedBox(height: 16),
+                  _optionsSection(context),
                 ],
               ),
       ),
