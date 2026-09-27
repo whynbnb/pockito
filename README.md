@@ -55,3 +55,5 @@ flutter run -d macos
 井字棋小游戏的界面与思路灵感来自 yamin8000 的开源项目 [Dooz](https://github.com/yamin8000/Dooz)（GNU General Public License v3.0）。应用内井字棋页面的信息按钮可查看该致谢。
 
 手电筒工具的界面与思路灵感来自 cyb3rko 的开源项目 [FlashDim](https://github.com/cyb3rko/flashdim)（Apache License 2.0）。应用内手电筒页面的信息按钮可查看该致谢。
+
++1 计数器的界面与思路灵感来自 Neïl Rahmouni 的开源项目 [Counters](https://gitlab.com/neil3000/counters)（GNU Affero General Public License v3.0）。应用内 +1 计数器页面的信息按钮可查看该致谢。

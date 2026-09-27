@@ -397,6 +397,45 @@ Future<void> showFlashdimAcknowledgements(BuildContext context) =>
       ),
     );
 
+Future<void> showCountersAcknowledgements(BuildContext context) =>
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Acknowledgements', '致谢')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                tr(
+                  context,
+                  'The +1 Counter tool is inspired by the open-source Counters by Neïl Rahmouni.',
+                  '+1 计数器的界面与思路灵感来自 Neïl Rahmouni 的开源项目 Counters。',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                tr(
+                  context,
+                  'License: GNU Affero General Public License v3.0',
+                  '许可证：GNU Affero General Public License v3.0',
+                ),
+              ),
+              const SizedBox(height: 8),
+              const SelectableText('https://gitlab.com/neil3000/counters'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr(context, 'Close', '关闭')),
+          ),
+        ],
+      ),
+    );
+
 Future<void> openVault(BuildContext context) async {
   final store = VaultStore();
   await store.initialize();
@@ -880,7 +919,16 @@ class _CounterScreenState extends State<CounterScreen> {
   Widget build(BuildContext context) {
     final total = _items.fold<int>(0, (sum, item) => sum + item.count);
     return Scaffold(
-      appBar: AppBar(title: Text(tr(context, '+1 Counter', '+1 计数器'))),
+      appBar: AppBar(
+        title: Text(tr(context, '+1 Counter', '+1 计数器')),
+        actions: [
+          IconButton(
+            tooltip: tr(context, 'Acknowledgements', '致谢'),
+            onPressed: () => showCountersAcknowledgements(context),
+            icon: const Icon(Icons.info_outline),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _add,
         icon: const Icon(Icons.add),

@@ -230,6 +230,19 @@ void main() {
     expect(find.textContaining('FlashDim'), findsOneWidget);
   });
 
+  testWidgets('shows counter acknowledgements', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('+1 Counter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.info_outline));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Acknowledgements'), findsOneWidget);
+    expect(find.textContaining('Counters'), findsOneWidget);
+  });
+
   testWidgets('shows tic tac toe acknowledgements', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
