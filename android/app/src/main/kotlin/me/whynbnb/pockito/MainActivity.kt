@@ -1,4 +1,4 @@
-package me.whynbnb.reef
+package me.whynbnb.pockito
 
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
@@ -35,7 +35,7 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "reef/flashlight",
+            "pockito/flashlight",
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "isAvailable" -> result.success(torchCameraId != null)

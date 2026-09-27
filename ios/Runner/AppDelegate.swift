@@ -13,7 +13,7 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ReefFlashlight") {
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PockitoFlashlight") {
       FlashlightChannel.register(with: registrar)
     }
   }
@@ -30,7 +30,7 @@ final class FlashlightChannel {
   }
 
   init(messenger: FlutterBinaryMessenger) {
-    channel = FlutterMethodChannel(name: "reef/flashlight", binaryMessenger: messenger)
+    channel = FlutterMethodChannel(name: "pockito/flashlight", binaryMessenger: messenger)
     channel.setMethodCallHandler { [weak self] call, result in
       self?.handle(call, result)
     }

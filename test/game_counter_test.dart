@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:reef/main.dart';
+import 'package:pockito/main.dart';
 
 void main() {
   GameScene sceneWithTwoPlayers() {

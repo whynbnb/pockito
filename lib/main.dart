@@ -183,7 +183,7 @@ class _VaultAppState extends State<VaultApp> {
       animation: _settings,
       builder: (context, _) => MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'Reef',
+        title: 'Pockito',
         themeMode: _settings.themeMode,
         localizationsDelegates: const [
           GlobalMaterialLocalizations.delegate,
@@ -609,7 +609,7 @@ class HomeScreen extends StatelessWidget {
     appBar: AppBar(
       title: GestureDetector(
         onLongPress: () => openVault(context),
-        child: Text(tr(context, 'Reef', '珊瑚礁')),
+        child: Text(tr(context, 'Pockito', '妙物袋')),
       ),
       actions: [
         IconButton(
@@ -4599,7 +4599,7 @@ class _SymbolDialogState extends State<_SymbolDialog> {
 }
 
 class _FlashlightChannel {
-  static const _channel = MethodChannel('reef/flashlight');
+  static const _channel = MethodChannel('pockito/flashlight');
 
   static Future<bool> isAvailable() async =>
       await _channel.invokeMethod<bool>('isAvailable') ?? false;
@@ -5281,7 +5281,9 @@ class VaultStore {
 
   Future<void> initialize() async {
     final directory = await getApplicationSupportDirectory();
-    _file = File('${directory.path}${Platform.pathSeparator}reef-cache.pvlt');
+    _file = File(
+      '${directory.path}${Platform.pathSeparator}pockito-cache.pvlt',
+    );
     await _recoverInterruptedWrite();
   }
 

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reef/main.dart';
+import 'package:pockito/main.dart';
 
 void main() {
   test('base codecs match known vectors', () {

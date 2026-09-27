@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:reef/main.dart';
+import 'package:pockito/main.dart';
 
 void main() {
   testWidgets('shows the tool list', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    expect(find.text('Reef'), findsOneWidget);
+    expect(find.text('Pockito'), findsOneWidget);
     expect(find.text('Password Generator'), findsOneWidget);
     expect(find.text('+1 Counter'), findsOneWidget);
   });

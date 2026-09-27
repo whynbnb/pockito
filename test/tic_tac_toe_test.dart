@@ -1,7 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reef/main.dart';
+import 'package:pockito/main.dart';
 
 TicTacToePlayer? p(String value) => switch (value) {
   'x' => TicTacToePlayer.x,
