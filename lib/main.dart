@@ -1970,12 +1970,10 @@ class _GameUserCardState extends State<_GameUserCard> {
             )
           : Column(
               children: [
-                _UserHeader(
+                _UserTopBar(
                   label: widget.label,
-                  types: types,
-                  activeIndex: user.activeIndex,
-                  onSelect: widget.onSetActive,
                   onRotate: widget.onRotate,
+                  onReset: widget.onReset,
                 ),
                 Expanded(
                   child: PageView.builder(
@@ -1983,12 +1981,15 @@ class _GameUserCardState extends State<_GameUserCard> {
                     onPageChanged: widget.onSetActive,
                     itemCount: types.length,
                     itemBuilder: (context, index) => _UserCounterPage(
-                      name: types[index].name,
                       value: widget.scene.valueFor(user.id, types[index].id),
                       onBump: widget.onBump,
-                      onReset: widget.onReset,
                     ),
                   ),
+                ),
+                _UserTypeTabs(
+                  types: types,
+                  activeIndex: user.activeIndex,
+                  onSelect: widget.onSetActive,
                 ),
               ],
             ),
@@ -2000,66 +2001,46 @@ class _GameUserCardState extends State<_GameUserCard> {
   }
 }
 
-class _UserHeader extends StatelessWidget {
-  const _UserHeader({
+class _UserTopBar extends StatelessWidget {
+  const _UserTopBar({
     required this.label,
-    required this.types,
-    required this.activeIndex,
-    required this.onSelect,
     required this.onRotate,
+    required this.onReset,
   });
 
   final String label;
-  final List<GameCounterType> types;
-  final int activeIndex;
-  final ValueChanged<int> onSelect;
   final VoidCallback onRotate;
+  final VoidCallback onReset;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(
-          child: SizedBox(
-            height: 44,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.only(
-                left: 12,
-                right: 4,
-                top: 6,
-                bottom: 6,
-              ),
-              itemCount: types.length + 1,
-              separatorBuilder: (context, index) => const SizedBox(width: 6),
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return Chip(
-                    avatar: const Icon(Icons.person_outline, size: 16),
-                    label: Text(label, overflow: TextOverflow.ellipsis),
-                    visualDensity: VisualDensity.compact,
-                  );
-                }
-                final typeIndex = index - 1;
-                return ChoiceChip(
-                  label: Text(types[typeIndex].name),
-                  selected: typeIndex == activeIndex,
-                  onSelected: (_) => onSelect(typeIndex),
-                  visualDensity: VisualDensity.compact,
-                );
-              },
-            ),
-          ),
+        const SizedBox(width: 8),
+        Chip(
+          avatar: const Icon(Icons.person_outline, size: 16),
+          label: Text(label, overflow: TextOverflow.ellipsis),
+          visualDensity: VisualDensity.compact,
         ),
+        const Spacer(),
         PopupMenuButton<String>(
           tooltip: tr(context, 'Panel actions', '面板操作'),
           onSelected: (value) {
-            if (value == 'rotate') onRotate();
+            switch (value) {
+              case 'rotate':
+                onRotate();
+              case 'reset':
+                onReset();
+            }
           },
           itemBuilder: (context) => [
             PopupMenuItem(
               value: 'rotate',
               child: Text(tr(context, 'Rotate 90°', '旋转 90°')),
+            ),
+            PopupMenuItem(
+              value: 'reset',
+              child: Text(tr(context, 'Reset to zero', '归零')),
             ),
           ],
         ),
@@ -2068,35 +2049,64 @@ class _UserHeader extends StatelessWidget {
   }
 }
 
-class _UserCounterPage extends StatelessWidget {
-  const _UserCounterPage({
-    required this.name,
-    required this.value,
-    required this.onBump,
-    required this.onReset,
+class _UserTypeTabs extends StatelessWidget {
+  const _UserTypeTabs({
+    required this.types,
+    required this.activeIndex,
+    required this.onSelect,
   });
 
-  final String name;
+  final List<GameCounterType> types;
+  final int activeIndex;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(left: 12, right: 12, top: 4, bottom: 8),
+        itemCount: types.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 6),
+        itemBuilder: (context, index) => ChoiceChip(
+          label: Text(types[index].name),
+          selected: index == activeIndex,
+          onSelected: (_) => onSelect(index),
+          visualDensity: VisualDensity.compact,
+        ),
+      ),
+    );
+  }
+}
+
+class _UserCounterPage extends StatelessWidget {
+  const _UserCounterPage({required this.value, required this.onBump});
+
   final int value;
   final ValueChanged<int> onBump;
-  final VoidCallback onReset;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+      child: Row(
         children: [
+          IconButton.filledTonal(
+            tooltip: tr(context, 'Decrease by one', '减一'),
+            onPressed: value <= 0 ? null : () => onBump(-1),
+            icon: const Icon(Icons.remove),
+          ),
           Expanded(
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
               onTap: () => onBump(1),
-              child: Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
                     child: Text(
                       '$value',
                       style: theme.textTheme.displayLarge?.copyWith(
@@ -2109,25 +2119,10 @@ class _UserCounterPage extends StatelessWidget {
               ),
             ),
           ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              IconButton.filledTonal(
-                tooltip: tr(context, 'Decrease by one', '减一'),
-                onPressed: value <= 0 ? null : () => onBump(-1),
-                icon: const Icon(Icons.remove),
-              ),
-              IconButton(
-                tooltip: tr(context, 'Reset to zero', '归零'),
-                onPressed: value == 0 ? null : onReset,
-                icon: const Icon(Icons.restart_alt),
-              ),
-              IconButton.filled(
-                tooltip: tr(context, 'Add one', '加一'),
-                onPressed: () => onBump(1),
-                icon: const Icon(Icons.add),
-              ),
-            ],
+          IconButton.filled(
+            tooltip: tr(context, 'Add one', '加一'),
+            onPressed: () => onBump(1),
+            icon: const Icon(Icons.add),
           ),
         ],
       ),
