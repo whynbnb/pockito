@@ -10,8 +10,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pinyin/pinyin.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -5856,48 +5854,60 @@ class VaultNote {
   );
 }
 
+enum VaultLockType { pattern, pin }
+
 class VaultStore {
-  static const _format = 'PVLT1';
+  VaultStore([this._directory]);
+
+  static const _format = 'PVLT2';
   static const _iterations = 210000;
+  static const _fileName = 'pockito-cache.pvlt';
   final _cipher = AesGcm.with256bits();
   final _random = Random.secure();
-  final _storage = const FlutterSecureStorage();
+  final Directory? _directory;
   late File _file;
   List<VaultNote> notes = [];
   SecretKey? _dataKey;
+  VaultLockType? _lockType;
+  bool _exists = false;
 
   Future<void> initialize() async {
-    final directory = await getApplicationSupportDirectory();
-    _file = File(
-      '${directory.path}${Platform.pathSeparator}pockito-cache.pvlt',
-    );
+    final directory = _directory ?? await getApplicationSupportDirectory();
+    _file = File('${directory.path}${Platform.pathSeparator}$_fileName');
     await _recoverInterruptedWrite();
+    final envelope = await _readEnvelope(_file);
+    _exists = envelope != null;
+    _lockType = _lockTypeOf(envelope);
   }
 
-  Future<bool> _isValidEnvelope(File candidate) async {
+  VaultLockType? _lockTypeOf(Map<String, dynamic>? envelope) {
+    if (envelope == null) return null;
     try {
-      final value = jsonDecode(await candidate.readAsString());
+      return VaultLockType.values.byName(envelope['type'] as String);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _readEnvelope(File file) async {
+    try {
+      if (!await file.exists()) return null;
+      final value = jsonDecode(await file.readAsString());
       if (value is! Map<String, dynamic> ||
           value['format'] != _format ||
-          value['slots'] is! Map ||
+          value['salt'] is! String ||
           value['payload'] is! Map) {
-        return false;
+        return null;
       }
-      final slots = Map<String, dynamic>.from(value['slots'] as Map);
+      VaultLockType.values.byName(value['type'] as String);
+      _decode(value['salt'] as String);
       final payload = Map<String, dynamic>.from(value['payload'] as Map);
-      for (final slot in [slots['password'], slots['recovery']]) {
-        final fields = Map<String, dynamic>.from(slot as Map);
-        _decode(fields['salt'] as String);
-        _decode(fields['nonce'] as String);
-        _decode(fields['ciphertext'] as String);
-        _decode(fields['mac'] as String);
-      }
       _decode(payload['nonce'] as String);
       _decode(payload['ciphertext'] as String);
       _decode(payload['mac'] as String);
-      return true;
+      return value;
     } catch (_) {
-      return false;
+      return null;
     }
   }
 
@@ -5905,12 +5915,12 @@ class VaultStore {
     final temporary = File('${_file.path}.writing');
     final backup = File('${_file.path}.backup');
     final mainExists = await _file.exists();
-    final mainValid = mainExists && await _isValidEnvelope(_file);
+    final mainValid = await _readEnvelope(_file) != null;
 
-    if (!mainValid && await _isValidEnvelope(temporary)) {
+    if (!mainValid && await _readEnvelope(temporary) != null) {
       if (mainExists) await _file.delete();
       await temporary.rename(_file.path);
-    } else if (!mainValid && await _isValidEnvelope(backup)) {
+    } else if (!mainValid && await _readEnvelope(backup) != null) {
       if (mainExists) await _file.delete();
       await backup.rename(_file.path);
     }
@@ -5918,7 +5928,8 @@ class VaultStore {
     if (await backup.exists()) await backup.delete();
   }
 
-  bool get exists => _file.existsSync();
+  bool get exists => _exists;
+  VaultLockType? get lockType => _lockType;
 
   List<int> _bytes(int count) =>
       List<int>.generate(count, (_) => _random.nextInt(256));
@@ -5932,104 +5943,36 @@ class VaultStore {
     bits: 256,
   ).deriveKey(secretKey: SecretKey(utf8.encode(secret)), nonce: salt);
 
-  Future<Map<String, String>> _wrap(SecretKey key, String secret) async {
+  Future<void> create({
+    required VaultLockType type,
+    required String secret,
+  }) async {
     final salt = _bytes(16);
-    final wrappingKey = await _derive(secret, salt);
-    final box = await _cipher.encrypt(
-      await key.extractBytes(),
-      secretKey: wrappingKey,
-      nonce: _bytes(12),
-    );
-    return {
-      'salt': _encode(salt),
-      'nonce': _encode(box.nonce),
-      'ciphertext': _encode(box.cipherText),
-      'mac': _encode(box.mac.bytes),
-    };
-  }
-
-  Future<SecretKey> _unwrap(Map<String, dynamic> slot, String secret) async {
-    final wrappingKey = await _derive(secret, _decode(slot['salt'] as String));
-    final bytes = await _cipher.decrypt(
-      SecretBox(
-        _decode(slot['ciphertext'] as String),
-        nonce: _decode(slot['nonce'] as String),
-        mac: Mac(_decode(slot['mac'] as String)),
-      ),
-      secretKey: wrappingKey,
-    );
-    return SecretKey(bytes);
-  }
-
-  Future<String> create(String password) async {
-    _dataKey = SecretKey(_bytes(32));
-    final recovery = List<String>.generate(
-      4,
-      (_) =>
-          _encode(_bytes(5)).replaceAll('-', '').substring(0, 7).toUpperCase(),
-    ).join('-');
-    final passwordSlot = await _wrap(_dataKey!, password);
-    final recoverySlot = await _wrap(_dataKey!, recovery);
+    _dataKey = await _derive(secret, salt);
+    _lockType = type;
     notes = [];
-    await _write({'password': passwordSlot, 'recovery': recoverySlot});
+    await _write(type: type, salt: salt);
+    _exists = true;
+  }
+
+  Future<bool> unlock(String secret) async {
+    final envelope = await _readEnvelope(_file);
+    if (envelope == null) return false;
+    final key = await _derive(secret, _decode(envelope['salt'] as String));
     try {
-      await _storage.write(
-        key: 'vault_biometric_key',
-        value: _encode(await _dataKey!.extractBytes()),
-      );
-    } catch (_) {
-      // The vault remains usable with its password and recovery key.
-    }
-    return recovery;
-  }
-
-  Future<void> unlockWithPassword(String password) async {
-    final envelope = await _readEnvelope();
-    _dataKey = await _unwrap(
-      Map<String, dynamic>.from(envelope['slots']['password'] as Map),
-      password,
-    );
-    await _loadPayload(envelope);
-  }
-
-  Future<void> unlockWithRecovery(String code) async {
-    final envelope = await _readEnvelope();
-    _dataKey = await _unwrap(
-      Map<String, dynamic>.from(envelope['slots']['recovery'] as Map),
-      code.trim().toUpperCase(),
-    );
-    await _loadPayload(envelope);
-  }
-
-  Future<bool> unlockWithBiometrics() async {
-    final available = await LocalAuthentication().canCheckBiometrics;
-    if (!available ||
-        !await LocalAuthentication().authenticate(
-          localizedReason: 'Unlock your private notes',
-          biometricOnly: true,
-          persistAcrossBackgrounding: true,
-        )) {
+      await _loadPayload(envelope, key);
+    } on SecretBoxAuthenticationError {
       return false;
     }
-    final encoded = await _storage.read(key: 'vault_biometric_key');
-    if (encoded == null) {
-      return false;
-    }
-    _dataKey = SecretKey(_decode(encoded));
-    await _loadPayload(await _readEnvelope());
+    _dataKey = key;
+    _lockType = _lockTypeOf(envelope);
     return true;
   }
 
-  Future<Map<String, dynamic>> _readEnvelope() async {
-    final decoded =
-        jsonDecode(await _file.readAsString()) as Map<String, dynamic>;
-    if (decoded['format'] != _format) {
-      throw const FormatException('Unsupported vault format');
-    }
-    return decoded;
-  }
-
-  Future<void> _loadPayload(Map<String, dynamic> envelope) async {
+  Future<void> _loadPayload(
+    Map<String, dynamic> envelope,
+    SecretKey key,
+  ) async {
     final payload = Map<String, dynamic>.from(envelope['payload'] as Map);
     final plain = await _cipher.decrypt(
       SecretBox(
@@ -6037,7 +5980,7 @@ class VaultStore {
         nonce: _decode(payload['nonce'] as String),
         mac: Mac(_decode(payload['mac'] as String)),
       ),
-      secretKey: _dataKey!,
+      secretKey: key,
     );
     final json = jsonDecode(utf8.decode(plain)) as Map<String, dynamic>;
     notes = (json['notes'] as List? ?? [])
@@ -6048,11 +5991,18 @@ class VaultStore {
   }
 
   Future<void> save() async {
-    final old = await _readEnvelope();
-    await _write(Map<String, dynamic>.from(old['slots'] as Map));
+    final envelope = await _readEnvelope(_file);
+    if (envelope == null) return;
+    await _write(
+      type: VaultLockType.values.byName(envelope['type'] as String),
+      salt: _decode(envelope['salt'] as String),
+    );
   }
 
-  Future<void> _write(Map<String, dynamic> slots) async {
+  Future<void> _write({
+    required VaultLockType type,
+    required List<int> salt,
+  }) async {
     final plain = utf8.encode(
       jsonEncode({'notes': notes.map((note) => note.toJson()).toList()}),
     );
@@ -6063,8 +6013,9 @@ class VaultStore {
     );
     final document = jsonEncode({
       'format': _format,
-      'version': 1,
-      'slots': slots,
+      'version': 2,
+      'type': type.name,
+      'salt': _encode(salt),
       'payload': {
         'nonce': _encode(box.nonce),
         'ciphertext': _encode(box.cipherText),
@@ -6672,6 +6623,185 @@ class _Legend extends StatelessWidget {
   );
 }
 
+class PatternLock extends StatefulWidget {
+  const PatternLock({
+    super.key,
+    required this.onCompleted,
+    this.enabled = true,
+  });
+
+  final ValueChanged<List<int>> onCompleted;
+  final bool enabled;
+
+  @override
+  State<PatternLock> createState() => _PatternLockState();
+}
+
+class _PatternLockState extends State<PatternLock> {
+  static const _columns = 3;
+  static const _dots = 9;
+  static const _hitRadius = 26.0;
+
+  final List<int> _selected = [];
+  Offset? _pointer;
+
+  Offset _center(int index, double size) {
+    final step = size / _columns;
+    return Offset(
+      step * (index % _columns + 0.5),
+      step * (index ~/ _columns + 0.5),
+    );
+  }
+
+  int? _dotAt(Offset position, double size) {
+    for (var index = 0; index < _dots; index++) {
+      if ((_center(index, size) - position).distance <= _hitRadius) {
+        return index;
+      }
+    }
+    return null;
+  }
+
+  int? _between(int from, int to) {
+    final fromX = from % _columns;
+    final fromY = from ~/ _columns;
+    final toX = to % _columns;
+    final toY = to ~/ _columns;
+    final deltaX = toX - fromX;
+    final deltaY = toY - fromY;
+    final aligned = deltaX == 0 || deltaY == 0 || deltaX.abs() == deltaY.abs();
+    if (!aligned || (deltaX.abs() <= 1 && deltaY.abs() <= 1)) return null;
+    if (deltaX.isOdd || deltaY.isOdd) return null;
+    return ((fromY + toY) ~/ 2) * _columns + (fromX + toX) ~/ 2;
+  }
+
+  void _select(int index) {
+    if (_selected.contains(index)) return;
+    if (_selected.isNotEmpty) {
+      final middle = _between(_selected.last, index);
+      if (middle != null && !_selected.contains(middle)) _selected.add(middle);
+    }
+    _selected.add(index);
+  }
+
+  void _update(Offset position, double size) {
+    final hit = _dotAt(position, size);
+    setState(() {
+      if (hit == null) {
+        _pointer = position;
+      } else {
+        _select(hit);
+        _pointer = _center(hit, size);
+      }
+    });
+  }
+
+  void _finish() {
+    final result = List<int>.of(_selected);
+    setState(() {
+      _selected.clear();
+      _pointer = null;
+    });
+    if (result.length >= 4) widget.onCompleted(result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AspectRatio(
+      aspectRatio: 1,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final size = constraints.maxWidth;
+          final centers = List<Offset>.generate(
+            _dots,
+            (index) => _center(index, size),
+          );
+          return GestureDetector(
+            onPanStart: widget.enabled
+                ? (details) => _update(details.localPosition, size)
+                : null,
+            onPanUpdate: widget.enabled
+                ? (details) => _update(details.localPosition, size)
+                : null,
+            onPanEnd: widget.enabled ? (_) => _finish() : null,
+            child: CustomPaint(
+              size: Size.square(size),
+              painter: _PatternPainter(
+                centers: centers,
+                selected: List<int>.of(_selected),
+                pointer: _pointer,
+                lineColor: scheme.primary,
+                dotColor: scheme.outline,
+                activeColor: scheme.primary,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PatternPainter extends CustomPainter {
+  const _PatternPainter({
+    required this.centers,
+    required this.selected,
+    required this.pointer,
+    required this.lineColor,
+    required this.dotColor,
+    required this.activeColor,
+  });
+
+  final List<Offset> centers;
+  final List<int> selected;
+  final Offset? pointer;
+  final Color lineColor;
+  final Color dotColor;
+  final Color activeColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final line = Paint()
+      ..color = lineColor
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    if (selected.length > 1) {
+      final path = Path()
+        ..moveTo(centers[selected.first].dx, centers[selected.first].dy);
+      for (final index in selected.skip(1)) {
+        path.lineTo(centers[index].dx, centers[index].dy);
+      }
+      canvas.drawPath(path, line);
+    }
+    if (selected.isNotEmpty && pointer != null) {
+      canvas.drawLine(centers[selected.last], pointer!, line);
+    }
+    final halo = Paint()..color = activeColor.withValues(alpha: 0.18);
+    final active = Paint()..color = activeColor;
+    final idle = Paint()
+      ..color = dotColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    for (var index = 0; index < centers.length; index++) {
+      final center = centers[index];
+      if (selected.contains(index)) {
+        canvas.drawCircle(center, 22, halo);
+        canvas.drawCircle(center, 10, active);
+      } else {
+        canvas.drawCircle(center, 10, idle);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PatternPainter oldDelegate) =>
+      oldDelegate.selected != selected ||
+      oldDelegate.pointer != pointer ||
+      oldDelegate.lineColor != lineColor;
+}
+
 class UnlockScreen extends StatefulWidget {
   const UnlockScreen({super.key, required this.store});
   final VaultStore store;
@@ -6680,67 +6810,107 @@ class UnlockScreen extends StatefulWidget {
 }
 
 class _UnlockScreenState extends State<UnlockScreen> {
-  final _secret = TextEditingController();
-  bool _recovery = false;
+  final _pin = TextEditingController();
+  VaultLockType _setupType = VaultLockType.pattern;
+  String? _firstSecret;
   bool _busy = false;
   String? _error;
+  int _patternAttempt = 0;
+
+  bool get _creating => !widget.store.exists;
+  VaultLockType get _type =>
+      _creating ? _setupType : (widget.store.lockType ?? VaultLockType.pattern);
+  bool get _confirming => _creating && _firstSecret != null;
 
   @override
   void dispose() {
-    _secret.dispose();
+    _pin.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    if (_secret.text.isEmpty) return;
-    final creating = !widget.store.exists;
+  String get _instruction {
+    if (!_creating) {
+      return _type == VaultLockType.pattern
+          ? tr(context, 'Draw your pattern to unlock.', '绘制图案以解锁。')
+          : tr(context, 'Enter your PIN to unlock.', '输入 PIN 以解锁。');
+    }
+    if (_confirming) {
+      return _type == VaultLockType.pattern
+          ? tr(context, 'Draw the pattern again to confirm.', '再次绘制图案以确认。')
+          : tr(context, 'Enter the PIN again to confirm.', '再次输入 PIN 以确认。');
+    }
+    return _type == VaultLockType.pattern
+        ? tr(
+            context,
+            'Draw a pattern to protect your private notes.',
+            '绘制图案以保护你的私密笔记。',
+          )
+        : tr(
+            context,
+            'Choose a PIN (4-8 digits) for your private notes.',
+            '设置 PIN 密码（4-8 位数字）保护私密笔记。',
+          );
+  }
+
+  String? _validate(String secret) {
+    if (_type != VaultLockType.pin) return null;
+    if (secret.length < 4) {
+      return tr(context, 'Use at least 4 digits.', '至少使用 4 位数字。');
+    }
+    if (secret.length > 8) {
+      return tr(context, 'Use at most 8 digits.', '最多使用 8 位数字。');
+    }
+    return null;
+  }
+
+  Future<void> _submit(String secret) async {
+    if (_busy) return;
+    final error = _validate(secret);
+    if (error != null) {
+      setState(() => _error = error);
+      return;
+    }
+    if (_creating) {
+      await _create(secret);
+    } else {
+      await _unlock(secret);
+    }
+  }
+
+  Future<void> _create(String secret) async {
+    if (_firstSecret == null) {
+      setState(() {
+        _firstSecret = secret;
+        _error = null;
+        _pin.clear();
+        _patternAttempt++;
+      });
+      return;
+    }
+    if (_firstSecret != secret) {
+      setState(() {
+        _firstSecret = null;
+        _error = tr(
+          context,
+          'Entries did not match. Try again.',
+          '两次输入不一致，请重试。',
+        );
+        _pin.clear();
+        _patternAttempt++;
+      });
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      if (!widget.store.exists) {
-        final recovery = await widget.store.create(_secret.text);
-        if (!mounted) return;
-        await showDialog<void>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text(tr(context, 'Recovery key', '恢复密钥')),
-            content: SelectableText(
-              '${tr(context, 'Store this offline. It can unlock this vault if your password is lost.', '请离线保存。忘记主密码时，它可以解锁此保险库。')}\n\n$recovery',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(tr(context, 'I stored it', '我已保存')),
-              ),
-            ],
-          ),
-        );
-      } else if (_recovery) {
-        await widget.store.unlockWithRecovery(_secret.text);
-      } else {
-        await widget.store.unlockWithPassword(_secret.text);
-      }
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => NotesScreen(store: widget.store)),
-        );
-      }
+      await widget.store.create(type: _type, secret: secret);
+      if (mounted) _openNotes();
     } catch (_) {
       if (mounted) {
         setState(
-          () => _error = creating
-              ? tr(
-                  context,
-                  'Unable to create the encrypted vault. Check secure storage permissions and try again.',
-                  '无法创建加密保险库，请检查安全存储权限后重试。',
-                )
-              : tr(
-                  context,
-                  'Unable to unlock. Check the credential and try again.',
-                  '无法解锁，请检查凭据后重试。',
-                ),
+          () => _error = tr(context, 'Unable to create the vault.', '无法创建保险库。'),
         );
       }
     } finally {
@@ -6748,42 +6918,69 @@ class _UnlockScreenState extends State<UnlockScreen> {
     }
   }
 
-  Future<void> _biometric() async {
+  Future<void> _unlock(String secret) async {
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      if (!await widget.store.unlockWithBiometrics()) {
-        throw StateError('Not available');
-      }
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => NotesScreen(store: widget.store)),
-        );
+      final ok = await widget.store.unlock(secret);
+      if (!mounted) return;
+      if (ok) {
+        _openNotes();
+      } else {
+        setState(() {
+          _error = tr(context, 'Wrong pattern or PIN.', '图案或 PIN 不正确。');
+          _pin.clear();
+          _patternAttempt++;
+        });
       }
     } catch (_) {
       if (mounted) {
-        setState(
-          () => _error = tr(
-            context,
-            'Biometric unlock is not available on this device.',
-            '此设备无法使用生物识别解锁。',
-          ),
-        );
+        setState(() => _error = tr(context, 'Unable to unlock.', '无法解锁。'));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _openNotes() {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => NotesScreen(store: widget.store)),
+    );
+  }
+
+  Widget _secretInput(BuildContext context) {
+    if (_type == VaultLockType.pattern) {
+      return PatternLock(
+        key: ValueKey('pattern-$_patternAttempt'),
+        enabled: !_busy,
+        onCompleted: (pattern) => _submit(pattern.join('-')),
+      );
+    }
+    return TextField(
+      controller: _pin,
+      autofocus: true,
+      enabled: !_busy,
+      obscureText: true,
+      keyboardType: TextInputType.number,
+      maxLength: 8,
+      onSubmitted: _submit,
+      decoration: InputDecoration(
+        labelText: tr(context, 'PIN', 'PIN'),
+        counterText: '',
+        errorText: _error,
+        border: const OutlineInputBorder(),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final creating = !widget.store.exists;
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          creating
+          _creating
               ? tr(context, 'Create vault', '创建保险库')
               : tr(context, 'Unlock vault', '解锁保险库'),
         ),
@@ -6804,68 +7001,58 @@ class _UnlockScreenState extends State<UnlockScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  creating
-                      ? tr(
-                          context,
-                          'Create a strong master password. Your notes never leave this device.',
-                          '创建一个强主密码。你的笔记不会离开此设备。',
-                        )
-                      : (_recovery
-                            ? tr(
-                                context,
-                                'Enter the recovery key from your offline copy.',
-                                '请输入你离线保存的恢复密钥。',
-                              )
-                            : tr(
-                                context,
-                                'Enter your master password.',
-                                '请输入主密码。',
-                              )),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _secret,
-                  autofocus: true,
-                  obscureText: !_recovery,
-                  onSubmitted: (_) => _submit(),
-                  decoration: InputDecoration(
-                    labelText: _recovery
-                        ? tr(context, 'Recovery key', '恢复密钥')
-                        : tr(context, 'Master password', '主密码'),
-                    errorText: _error,
-                    border: const OutlineInputBorder(),
+                if (_creating && !_confirming) ...[
+                  SegmentedButton<VaultLockType>(
+                    segments: [
+                      ButtonSegment(
+                        value: VaultLockType.pattern,
+                        label: Text(tr(context, 'Pattern', '九宫格')),
+                        icon: const Icon(Icons.gesture),
+                      ),
+                      ButtonSegment(
+                        value: VaultLockType.pin,
+                        label: Text(tr(context, 'PIN', '数字 PIN')),
+                        icon: const Icon(Icons.dialpad),
+                      ),
+                    ],
+                    selected: {_setupType},
+                    onSelectionChanged: _busy
+                        ? null
+                        : (selection) => setState(() {
+                            _setupType = selection.first;
+                            _error = null;
+                            _pin.clear();
+                            _patternAttempt++;
+                          }),
                   ),
-                ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: _busy ? null : _submit,
-                  child: Text(
-                    creating
-                        ? tr(context, 'Create encrypted vault', '创建加密保险库')
-                        : tr(context, 'Unlock', '解锁'),
+                  const SizedBox(height: 20),
+                ],
+                Text(_instruction, textAlign: TextAlign.center),
+                const SizedBox(height: 20),
+                if (_type == VaultLockType.pattern)
+                  Center(
+                    child: SizedBox(width: 260, child: _secretInput(context)),
+                  )
+                else
+                  _secretInput(context),
+                if (_type == VaultLockType.pattern && _error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
-                ),
-                if (!creating) ...[
-                  TextButton.icon(
-                    onPressed: _busy ? null : _biometric,
-                    icon: const Icon(Icons.fingerprint),
-                    label: Text(tr(context, 'Use biometrics', '使用生物识别')),
-                  ),
-                  TextButton(
-                    onPressed: () => setState(() {
-                      _recovery = !_recovery;
-                      _error = null;
-                      _secret.clear();
-                    }),
+                ],
+                if (_type == VaultLockType.pin) ...[
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: _busy ? null : () => _submit(_pin.text),
                     child: Text(
-                      _recovery
-                          ? tr(context, 'Use master password', '使用主密码')
-                          : tr(
-                              context,
-                              'Use security key / recovery key',
-                              '使用安全密钥 / 恢复密钥',
-                            ),
+                      _creating
+                          ? tr(context, 'Continue', '继续')
+                          : tr(context, 'Unlock', '解锁'),
                     ),
                   ),
                 ],

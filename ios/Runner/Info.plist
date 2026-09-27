@@ -16,8 +16,6 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>Pockito</string>
-	<key>NSFaceIDUsageDescription</key>
-	<string>Use Face ID to unlock your private notes.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Control the device flashlight.</string>
 	<key>CFBundlePackageType</key>
