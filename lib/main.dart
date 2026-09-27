@@ -427,6 +427,14 @@ const toolInfos = <ToolInfo>[
     chineseTitle: '震动器',
     englishSubtitle: 'Play built-in or custom vibration patterns.',
     chineseSubtitle: '按内置或自定义模式震动。',
+    credits: [
+      ToolCredit(
+        project: 'Vibrator',
+        author: 'xiaofeidev',
+        license: 'Apache License 2.0',
+        url: 'https://github.com/xiaofeidev/Vibrator',
+      ),
+    ],
     englishNote: 'Requires a device with a vibration motor. Desktop platforms have no vibration hardware.',
     chineseNote: '需要带震动马达的设备；桌面平台没有震动硬件。',
   ),
@@ -5788,6 +5796,12 @@ class _VibratorScreenState extends State<VibratorScreen>
             onPressed: _playing ? _stop : null,
             icon: const Icon(Icons.stop_circle_outlined),
           ),
+        IconButton(
+          tooltip: tr(context, 'Acknowledgements', '致谢'),
+          onPressed: () =>
+              showToolAcknowledgements(context, toolInfoById('vibrator')!),
+          icon: const Icon(Icons.info_outline),
+        ),
       ],
     ),
     body: Center(
