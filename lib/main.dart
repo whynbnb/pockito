@@ -696,17 +696,33 @@ class CounterStore {
 }
 
 class GameCounterType {
-  GameCounterType({required this.id, required this.name});
+  GameCounterType({
+    required this.id,
+    required this.name,
+    this.quickDirection = 1,
+    this.defaultValue = 0,
+  });
 
   final String id;
   String name;
+  int quickDirection;
+  int defaultValue;
 
-  Map<String, dynamic> toJson() => {'id': id, 'name': name};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'quickDirection': quickDirection,
+    'defaultValue': defaultValue,
+  };
 
   factory GameCounterType.fromJson(Map<String, dynamic> json) =>
       GameCounterType(
         id: json['id'] as String,
         name: json['name'] as String? ?? '',
+        quickDirection: ((json['quickDirection'] as num?)?.toInt() ?? 1) < 0
+            ? -1
+            : 1,
+        defaultValue: (json['defaultValue'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -811,7 +827,11 @@ class GameScene {
     return null;
   }
 
-  int valueFor(String userId, String typeId) => values[userId]?[typeId] ?? 0;
+  int valueFor(String userId, String typeId) {
+    final stored = values[userId]?[typeId];
+    if (stored != null) return stored;
+    return typeById(typeId)?.defaultValue ?? 0;
+  }
 
   void setValueFor(String userId, String typeId, int value) =>
       (values[userId] ??= {})[typeId] = value;
@@ -1630,11 +1650,12 @@ class _GameCounterScreenState extends State<GameCounterScreen> {
 
   void _reset(GameScene scene, GameUser user) {
     final type = scene.typeAt(user.activeIndex);
-    if (type == null || scene.valueFor(user.id, type.id) == 0) return;
+    if (type == null) return;
+    final current = scene.valueFor(user.id, type.id);
+    if (current == type.defaultValue) return;
     setState(() {
-      final delta = -scene.valueFor(user.id, type.id);
-      scene.setValueFor(user.id, type.id, 0);
-      scene.record(user, type, delta);
+      scene.setValueFor(user.id, type.id, type.defaultValue);
+      scene.record(user, type, type.defaultValue - current);
     });
     _persist();
   }
@@ -1654,7 +1675,7 @@ class _GameCounterScreenState extends State<GameCounterScreen> {
     var hasValue = false;
     for (final user in scene.users) {
       for (final type in scene.types) {
-        if (scene.valueFor(user.id, type.id) != 0) {
+        if (scene.valueFor(user.id, type.id) != type.defaultValue) {
           hasValue = true;
           break;
         }
@@ -1669,8 +1690,8 @@ class _GameCounterScreenState extends State<GameCounterScreen> {
         content: Text(
           tr(
             context,
-            'Set every counter in "${scene.name}" back to zero?',
-            '将“${scene.name}”的所有计数器清零？',
+            'Reset every counter in "${scene.name}" to its default value?',
+            '将“${scene.name}”的所有计数器重置为默认值？',
           ),
         ),
         actions: [
@@ -1690,9 +1711,9 @@ class _GameCounterScreenState extends State<GameCounterScreen> {
       for (final user in scene.users) {
         for (final type in scene.types) {
           final current = scene.valueFor(user.id, type.id);
-          if (current == 0) continue;
-          scene.setValueFor(user.id, type.id, 0);
-          scene.record(user, type, -current);
+          if (current == type.defaultValue) continue;
+          scene.setValueFor(user.id, type.id, type.defaultValue);
+          scene.record(user, type, type.defaultValue - current);
         }
       }
     });
@@ -1982,6 +2003,7 @@ class _GameUserCardState extends State<_GameUserCard> {
                     itemCount: types.length,
                     itemBuilder: (context, index) => _UserCounterPage(
                       value: widget.scene.valueFor(user.id, types[index].id),
+                      quickDirection: types[index].quickDirection,
                       onBump: widget.onBump,
                     ),
                   ),
@@ -2081,9 +2103,14 @@ class _UserTypeTabs extends StatelessWidget {
 }
 
 class _UserCounterPage extends StatelessWidget {
-  const _UserCounterPage({required this.value, required this.onBump});
+  const _UserCounterPage({
+    required this.value,
+    required this.quickDirection,
+    required this.onBump,
+  });
 
   final int value;
+  final int quickDirection;
   final ValueChanged<int> onBump;
 
   @override
@@ -2101,7 +2128,7 @@ class _UserCounterPage extends StatelessWidget {
           Expanded(
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
-              onTap: () => onBump(1),
+              onTap: () => onBump(quickDirection),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Center(
@@ -2430,6 +2457,19 @@ class _GameCounterSettingsScreenState extends State<GameCounterSettingsScreen> {
     _changed();
   }
 
+  Future<void> _editDefaultValue(GameCounterType type) async {
+    final value = await _prompt(
+      title: tr(context, 'Default value', '默认值'),
+      label: tr(context, 'Counter default', '计数器默认值'),
+      initial: '${type.defaultValue}',
+    );
+    if (value == null) return;
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) return;
+    setState(() => type.defaultValue = parsed);
+    _changed();
+  }
+
   Future<void> _removeType(GameScene scene, GameCounterType type) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -2610,9 +2650,38 @@ class _GameCounterSettingsScreenState extends State<GameCounterSettingsScreen> {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.tag),
               title: Text(type.name),
+              subtitle: Text(
+                '${type.quickDirection > 0 ? tr(context, 'Quick tap: +1', '轻点方向：+1') : tr(context, 'Quick tap: -1', '轻点方向：-1')}'
+                ' · ${tr(context, 'Default: ${type.defaultValue}', '默认值：${type.defaultValue}')}',
+              ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  IconButton(
+                    tooltip: tr(context, 'Set default value', '设置默认值'),
+                    onPressed: () => _editDefaultValue(type),
+                    icon: const Icon(Icons.exposure_zero),
+                  ),
+                  IconButton(
+                    tooltip: tr(
+                      context,
+                      'Toggle quick tap direction',
+                      '切换轻点方向',
+                    ),
+                    onPressed: () {
+                      setState(
+                        () => type.quickDirection = type.quickDirection > 0
+                            ? -1
+                            : 1,
+                      );
+                      _changed();
+                    },
+                    icon: Icon(
+                      type.quickDirection > 0
+                          ? Icons.add_circle_outline
+                          : Icons.remove_circle_outline,
+                    ),
+                  ),
                   IconButton(
                     tooltip: tr(context, 'Rename', '重命名'),
                     onPressed: () => _renameType(scene, type),

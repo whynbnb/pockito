@@ -81,6 +81,47 @@ void main() {
     expect(scene.history.single.userId, 'u2');
   });
 
+  test('counter types keep a quick tap direction across json', () {
+    final type = GameCounterType(
+      id: 'score',
+      name: 'Score',
+      quickDirection: -1,
+    );
+
+    final restored = GameCounterType.fromJson(type.toJson());
+
+    expect(restored.quickDirection, -1);
+
+    final fallback = GameCounterType.fromJson({'id': 'x', 'name': 'X'});
+    expect(fallback.quickDirection, 1);
+  });
+
+  test('counter types keep a default value across json', () {
+    final type = GameCounterType(id: 'score', name: 'Score', defaultValue: 10);
+
+    final restored = GameCounterType.fromJson(type.toJson());
+
+    expect(restored.defaultValue, 10);
+    expect(GameCounterType.fromJson({'id': 'x', 'name': 'X'}).defaultValue, 0);
+  });
+
+  test('unset values fall back to the counter type default', () {
+    final scene = GameScene(
+      id: 'scene',
+      name: 'Game',
+      types: [GameCounterType(id: 'hp', name: 'Health', defaultValue: 20)],
+      users: [GameUser(id: 'u1')],
+    );
+
+    expect(scene.valueFor('u1', 'hp'), 20);
+
+    scene.setValueFor('u1', 'hp', 12);
+    expect(scene.valueFor('u1', 'hp'), 12);
+
+    scene.setValueFor('u1', 'hp', 20);
+    expect(scene.valueFor('u1', 'hp'), 20);
+  });
+
   test('game scene survives a json round trip', () {
     final scene = sceneWithTwoPlayers();
     scene.setValueFor('u1', 'score', 7);

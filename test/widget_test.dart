@@ -355,6 +355,59 @@ void main() {
     expect(find.text('0'), findsNWidgets(2));
   });
 
+  testWidgets('sets the default quick tap direction', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Game Counter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Add one').first);
+    await tester.tap(find.byTooltip('Add one').first);
+    await tester.tap(find.byTooltip('Add one').first);
+    await tester.pumpAndSettle();
+    expect(find.text('3'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Quick tap: +1'), findsOneWidget);
+    await tester.tap(find.byTooltip('Toggle quick tap direction'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Quick tap: -1'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('3'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2'), findsOneWidget);
+  });
+
+  testWidgets('sets a counter type default value', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Game Counter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Set default value'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.enterText(find.byType(TextField), '5');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Default: 5'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.text('5'), findsNWidgets(2));
+  });
+
   testWidgets('switches game scenes from the app bar', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
