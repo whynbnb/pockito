@@ -14,6 +14,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pinyin/pinyin.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -280,124 +281,253 @@ Future<void> showSettings(BuildContext context) => showModalBottomSheet<void>(
   },
 );
 
-Future<void> showAcknowledgements(BuildContext context) => showDialog<void>(
-  context: context,
-  builder: (context) => AlertDialog(
-    title: Text(tr(context, 'Acknowledgements', '致谢')),
-    content: SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            tr(
-              context,
-              'The password generator is inspired by the open-source Password Generator by Vectura Games.',
-              '密码生成器的界面与功能灵感来自 Vectura Games 的开源项目 Password Generator。',
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            tr(
-              context,
-              'License: Apache License 2.0',
-              '许可证：Apache License 2.0',
-            ),
-          ),
-          const SizedBox(height: 8),
-          const SelectableText(
-            'https://gitlab.com/vecturagames/passwordgenerator',
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: Text(tr(context, 'Close', '关闭')),
+class ToolCredit {
+  const ToolCredit({
+    required this.project,
+    required this.author,
+    required this.license,
+    required this.url,
+  });
+
+  final String project;
+  final String author;
+  final String license;
+  final String url;
+}
+
+class ToolInfo {
+  const ToolInfo({
+    required this.id,
+    required this.icon,
+    required this.englishTitle,
+    required this.chineseTitle,
+    required this.englishSubtitle,
+    required this.chineseSubtitle,
+    this.credits = const [],
+    this.englishNote = '',
+    this.chineseNote = '',
+  });
+
+  final String id;
+  final IconData icon;
+  final String englishTitle;
+  final String chineseTitle;
+  final String englishSubtitle;
+  final String chineseSubtitle;
+  final List<ToolCredit> credits;
+  final String englishNote;
+  final String chineseNote;
+
+  bool get hasAcknowledgements => credits.isNotEmpty;
+}
+
+const toolInfos = <ToolInfo>[
+  ToolInfo(
+    id: 'password-generator',
+    icon: Icons.password_outlined,
+    englishTitle: 'Password Generator',
+    chineseTitle: '密码生成器',
+    englishSubtitle: 'Create strong passwords with custom filters and seeds.',
+    chineseSubtitle: '使用自定义筛选和种子生成强密码。',
+    credits: [
+      ToolCredit(
+        project: 'Password Generator',
+        author: 'Vectura Games',
+        license: 'Apache License 2.0',
+        url: 'https://gitlab.com/vecturagames/passwordgenerator',
       ),
     ],
   ),
-);
-
-Future<void> showDoozAcknowledgements(BuildContext context) => showDialog<void>(
-  context: context,
-  builder: (context) => AlertDialog(
-    title: Text(tr(context, 'Acknowledgements', '致谢')),
-    content: SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            tr(
-              context,
-              'The tic-tac-toe game is inspired by the open-source Dooz by yamin8000.',
-              '井字棋小游戏的界面与思路灵感来自 yamin8000 的开源项目 Dooz。',
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            tr(
-              context,
-              'License: GNU General Public License v3.0',
-              '许可证：GNU General Public License v3.0',
-            ),
-          ),
-          const SizedBox(height: 8),
-          const SelectableText('https://github.com/yamin8000/Dooz'),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: Text(tr(context, 'Close', '关闭')),
+  ToolInfo(
+    id: 'counter',
+    icon: Icons.exposure_plus_1_outlined,
+    englishTitle: '+1 Counter',
+    chineseTitle: '+1 计数器',
+    englishSubtitle: 'Count custom events with a single tap.',
+    chineseSubtitle: '轻点即可统计自定义事件。',
+    credits: [
+      ToolCredit(
+        project: 'Counters',
+        author: 'Neïl Rahmouni',
+        license: 'GNU Affero General Public License v3.0',
+        url: 'https://gitlab.com/neil3000/counters',
       ),
     ],
   ),
+  ToolInfo(
+    id: 'game-counter',
+    icon: Icons.sports_esports_outlined,
+    englishTitle: 'Game Counter',
+    chineseTitle: '游戏计数器',
+    englishSubtitle: 'Place custom counters for board games and parties.',
+    chineseSubtitle: '为桌游和聚会摆放自定义计数器面板。',
+    credits: [
+      ToolCredit(
+        project: 'gamecounter',
+        author: 'multun',
+        license: 'GNU General Public License v3.0',
+        url: 'https://github.com/multun/gamecounter',
+      ),
+    ],
+  ),
+  ToolInfo(
+    id: 'basexx',
+    icon: Icons.transform,
+    englishTitle: 'Basexx',
+    chineseTitle: 'Base 编解码',
+    englishSubtitle: 'Encode and decode Base16, Base32, Base58 and Base64.',
+    chineseSubtitle: '在 Base16、Base32、Base58 和 Base64 之间编解码。',
+  ),
+  ToolInfo(
+    id: '2048',
+    icon: Icons.grid_view_rounded,
+    englishTitle: '2048',
+    chineseTitle: '2048',
+    englishSubtitle: 'Slide the tiles and merge them to reach 2048.',
+    chineseSubtitle: '滑动方块并合并，合成 2048。',
+  ),
+  ToolInfo(
+    id: 'tic-tac-toe',
+    icon: Icons.grid_3x3,
+    englishTitle: 'Tic-Tac-Toe',
+    chineseTitle: '井字棋',
+    englishSubtitle: 'Play against the bot and customize your marks.',
+    chineseSubtitle: '与电脑对战，并可自定义符号。',
+    credits: [
+      ToolCredit(
+        project: 'Dooz',
+        author: 'yamin8000',
+        license: 'GNU General Public License v3.0',
+        url: 'https://github.com/yamin8000/Dooz',
+      ),
+    ],
+  ),
+  ToolInfo(
+    id: 'flashlight',
+    icon: Icons.flashlight_on_outlined,
+    englishTitle: 'Flashlight',
+    chineseTitle: '手电筒',
+    englishSubtitle: 'Torch, brightness, SOS, blinking and Morse code.',
+    chineseSubtitle: '手电筒、亮度、SOS、闪烁与摩尔斯电码。',
+    credits: [
+      ToolCredit(
+        project: 'FlashDim',
+        author: 'cyb3rko',
+        license: 'Apache License 2.0',
+        url: 'https://github.com/cyb3rko/flashdim',
+      ),
+    ],
+    englishNote: 'Requires a device with a camera flash. Desktop platforms fall back to Morse code only.',
+    chineseNote: '需要带闪光灯的设备；桌面平台仅保留摩尔斯电码功能。',
+  ),
+];
+
+ToolInfo? toolInfoById(String id) {
+  for (final tool in toolInfos) {
+    if (tool.id == id) return tool;
+  }
+  return null;
+}
+
+String toolCreditDescription(
+  BuildContext context,
+  ToolInfo tool,
+  ToolCredit credit,
+) => tr(
+  context,
+  'The ${tool.englishTitle} tool is inspired by the open-source '
+      '${credit.project} by ${credit.author}.',
+  '${tool.chineseTitle}的界面与思路灵感来自 ${credit.author} 的开源项目 '
+      '${credit.project}。',
 );
 
-Future<void> showFlashdimAcknowledgements(BuildContext context) =>
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr(context, 'Acknowledgements', '致谢')),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                tr(
-                  context,
-                  'The flashlight tool is inspired by the open-source FlashDim by cyb3rko.',
-                  '手电筒工具的界面与思路灵感来自 cyb3rko 的开源项目 FlashDim。',
+Future<void> openToolUrl(BuildContext context, String url) async {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return;
+  try {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(url)));
+    }
+  }
+}
+
+class _ToolLink extends StatelessWidget {
+  const _ToolLink({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => openToolUrl(context, url),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.open_in_new, size: 16, color: color),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                url,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: color,
+                  decoration: TextDecoration.underline,
+                  decorationColor: color,
                 ),
               ),
-              const SizedBox(height: 12),
-              Text(
-                tr(
-                  context,
-                  'License: Apache License 2.0',
-                  '许可证：Apache License 2.0',
-                ),
-              ),
-              const SizedBox(height: 8),
-              const SelectableText('https://github.com/cyb3rko/flashdim'),
-            ],
-          ),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(tr(context, 'Close', '关闭')),
+      ),
+    );
+  }
+}
+
+class _LicenseBadge extends StatelessWidget {
+  const _LicenseBadge({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: scheme.secondaryContainer,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: scheme.secondary.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.verified_outlined,
+            size: 16,
+            color: scheme.onSecondaryContainer,
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              text,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: scheme.onSecondaryContainer,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
     );
+  }
+}
 
-Future<void> showCountersAcknowledgements(BuildContext context) =>
+Future<void> showToolAcknowledgements(BuildContext context, ToolInfo tool) =>
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -407,62 +537,35 @@ Future<void> showCountersAcknowledgements(BuildContext context) =>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                tr(
-                  context,
-                  'The +1 Counter tool is inspired by the open-source Counters by Neïl Rahmouni.',
-                  '+1 计数器的界面与思路灵感来自 Neïl Rahmouni 的开源项目 Counters。',
+              if (!tool.hasAcknowledgements)
+                Text(
+                  tr(
+                    context,
+                    'No acknowledgements for this tool.',
+                    '此工具没有需要标记的致谢信息。',
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                tr(
-                  context,
-                  'License: GNU Affero General Public License v3.0',
-                  '许可证：GNU Affero General Public License v3.0',
+              for (var i = 0; i < tool.credits.length; i++) ...[
+                if (i > 0) const Divider(height: 24),
+                Text(toolCreditDescription(context, tool, tool.credits[i])),
+                const SizedBox(height: 12),
+                _LicenseBadge(
+                  text: tr(
+                    context,
+                    'License: ${tool.credits[i].license}',
+                    '许可证：${tool.credits[i].license}',
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              const SelectableText('https://gitlab.com/neil3000/counters'),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(tr(context, 'Close', '关闭')),
-          ),
-        ],
-      ),
-    );
-
-Future<void> showGameCounterAcknowledgements(BuildContext context) =>
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr(context, 'Acknowledgements', '致谢')),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                tr(
-                  context,
-                  'The game counter tool is inspired by the open-source gamecounter by multun.',
-                  '游戏计数器工具的界面与思路灵感来自 multun 的开源项目 gamecounter。',
+                const SizedBox(height: 8),
+                _ToolLink(url: tool.credits[i].url),
+              ],
+              if (tool.englishNote.isNotEmpty) ...[
+                const Divider(height: 24),
+                Text(
+                  tr(context, tool.englishNote, tool.chineseNote),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                tr(
-                  context,
-                  'License: GNU General Public License v3.0',
-                  '许可证：GNU General Public License v3.0',
-                ),
-              ),
-              const SizedBox(height: 8),
-              const SelectableText('https://github.com/multun/gamecounter'),
+              ],
             ],
           ),
         ),
@@ -490,6 +593,17 @@ class HomeScreen extends StatelessWidget {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
+  Widget? _screenFor(String id) => switch (id) {
+    'password-generator' => const GeneratorScreen(),
+    'counter' => const CounterScreen(),
+    'game-counter' => const GameCounterScreen(),
+    'basexx' => const BaseCodecScreen(),
+    '2048' => const Game2048Screen(),
+    'tic-tac-toe' => const TicTacToeScreen(),
+    'flashlight' => const FlashlightScreen(),
+    _ => null,
+  };
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -511,82 +625,22 @@ class HomeScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
           children: [
-            _ToolTile(
-              icon: Icons.password_outlined,
-              title: tr(context, 'Password Generator', '密码生成器'),
-              subtitle: tr(
-                context,
-                'Create strong passwords with custom filters and seeds.',
-                '使用自定义筛选和种子生成强密码。',
+            for (final tool in toolInfos) ...[
+              _ToolTile(
+                icon: tool.icon,
+                title: tr(context, tool.englishTitle, tool.chineseTitle),
+                subtitle: tr(
+                  context,
+                  tool.englishSubtitle,
+                  tool.chineseSubtitle,
+                ),
+                onTap: () {
+                  final screen = _screenFor(tool.id);
+                  if (screen != null) _open(context, screen);
+                },
               ),
-              onTap: () => _open(context, const GeneratorScreen()),
-            ),
-            const SizedBox(height: 12),
-            _ToolTile(
-              icon: Icons.exposure_plus_1_outlined,
-              title: tr(context, '+1 Counter', '+1 计数器'),
-              subtitle: tr(
-                context,
-                'Count custom events with a single tap.',
-                '轻点即可统计自定义事件。',
-              ),
-              onTap: () => _open(context, const CounterScreen()),
-            ),
-            const SizedBox(height: 12),
-            _ToolTile(
-              icon: Icons.sports_esports_outlined,
-              title: tr(context, 'Game Counter', '游戏计数器'),
-              subtitle: tr(
-                context,
-                'Place custom counters for board games and parties.',
-                '为桌游和聚会摆放自定义计数器面板。',
-              ),
-              onTap: () => _open(context, const GameCounterScreen()),
-            ),
-            const SizedBox(height: 12),
-            _ToolTile(
-              icon: Icons.transform,
-              title: tr(context, 'Basexx', 'Base 编解码'),
-              subtitle: tr(
-                context,
-                'Encode and decode Base16, Base32, Base58 and Base64.',
-                '在 Base16、Base32、Base58 和 Base64 之间编解码。',
-              ),
-              onTap: () => _open(context, const BaseCodecScreen()),
-            ),
-            const SizedBox(height: 12),
-            _ToolTile(
-              icon: Icons.grid_view_rounded,
-              title: tr(context, '2048', '2048'),
-              subtitle: tr(
-                context,
-                'Slide the tiles and merge them to reach 2048.',
-                '滑动方块并合并，合成 2048。',
-              ),
-              onTap: () => _open(context, const Game2048Screen()),
-            ),
-            const SizedBox(height: 12),
-            _ToolTile(
-              icon: Icons.grid_3x3,
-              title: tr(context, 'Tic-Tac-Toe', '井字棋'),
-              subtitle: tr(
-                context,
-                'Play against the bot and customize your marks.',
-                '与电脑对战，并可自定义符号。',
-              ),
-              onTap: () => _open(context, const TicTacToeScreen()),
-            ),
-            const SizedBox(height: 12),
-            _ToolTile(
-              icon: Icons.flashlight_on_outlined,
-              title: tr(context, 'Flashlight', '手电筒'),
-              subtitle: tr(
-                context,
-                'Torch, brightness, SOS, blinking and Morse code.',
-                '手电筒、亮度、SOS、闪烁与摩尔斯电码。',
-              ),
-              onTap: () => _open(context, const FlashlightScreen()),
-            ),
+              if (tool != toolInfos.last) const SizedBox(height: 12),
+            ],
           ],
         ),
       ),
@@ -1256,7 +1310,8 @@ class _CounterScreenState extends State<CounterScreen> {
         actions: [
           IconButton(
             tooltip: tr(context, 'Acknowledgements', '致谢'),
-            onPressed: () => showCountersAcknowledgements(context),
+            onPressed: () =>
+                showToolAcknowledgements(context, toolInfoById('counter')!),
             icon: const Icon(Icons.info_outline),
           ),
         ],
@@ -1809,7 +1864,10 @@ class _GameCounterScreenState extends State<GameCounterScreen> {
           ),
           IconButton(
             tooltip: tr(context, 'Acknowledgements', '致谢'),
-            onPressed: () => showGameCounterAcknowledgements(context),
+            onPressed: () => showToolAcknowledgements(
+              context,
+              toolInfoById('game-counter')!,
+            ),
             icon: const Icon(Icons.info_outline),
           ),
         ],
@@ -4376,7 +4434,8 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
         ),
         IconButton(
           tooltip: tr(context, 'Acknowledgements', '致谢'),
-          onPressed: () => showDoozAcknowledgements(context),
+          onPressed: () =>
+              showToolAcknowledgements(context, toolInfoById('tic-tac-toe')!),
           icon: const Icon(Icons.info_outline),
         ),
       ],
@@ -5150,7 +5209,8 @@ class _FlashlightScreenState extends State<FlashlightScreen>
           ),
         IconButton(
           tooltip: tr(context, 'Acknowledgements', '致谢'),
-          onPressed: () => showFlashdimAcknowledgements(context),
+          onPressed: () =>
+              showToolAcknowledgements(context, toolInfoById('flashlight')!),
           icon: const Icon(Icons.info_outline),
         ),
       ],
@@ -5639,7 +5699,10 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
         ),
         IconButton(
           tooltip: tr(context, 'Acknowledgements', '致谢'),
-          onPressed: () => showAcknowledgements(context),
+          onPressed: () => showToolAcknowledgements(
+            context,
+            toolInfoById('password-generator')!,
+          ),
           icon: const Icon(Icons.info_outline),
         ),
       ],
