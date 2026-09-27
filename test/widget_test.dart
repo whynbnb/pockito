@@ -243,9 +243,138 @@ void main() {
     expect(find.textContaining('Counters'), findsOneWidget);
   });
 
+  testWidgets('opens the game counter and increments a player', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Game Counter'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(GameCounterScreen), findsOneWidget);
+    expect(find.text('Score'), findsNWidgets(2));
+    expect(find.text('P1'), findsOneWidget);
+    expect(find.text('P2'), findsOneWidget);
+    expect(find.text('0'), findsNWidgets(2));
+
+    await tester.tap(find.text('0').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('0'), findsOneWidget);
+  });
+
+  testWidgets('records game counter history', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Game Counter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('0').first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('History'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(GameCounterHistoryScreen), findsOneWidget);
+    expect(find.textContaining('+1'), findsOneWidget);
+    expect(find.textContaining('Score'), findsOneWidget);
+  });
+
+  testWidgets('adds a game counter scene in settings', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Game Counter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(GameCounterSettingsScreen), findsOneWidget);
+
+    await tester.tap(find.text('New scene'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.enterText(find.byType(TextField), 'Poker');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Poker'), findsOneWidget);
+  });
+
+  testWidgets('adds a shared counter type in settings', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Game Counter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add type'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.enterText(find.byType(TextField), 'Armor');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Armor'), findsOneWidget);
+  });
+
+  testWidgets('sets the number of players in settings', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Game Counter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Player 1'), findsOneWidget);
+    expect(find.text('Player 2'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Increase'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Player 3'), findsOneWidget);
+  });
+
+  testWidgets('resets all counters from the main screen', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Game Counter'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('0').first);
+    await tester.pumpAndSettle();
+    expect(find.text('1'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Reset all counters'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reset'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('0'), findsNWidgets(2));
+  });
+
+  testWidgets('switches game scenes from the app bar', (tester) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.tap(find.text('Game Counter'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Game 1'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Switch scene'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Manage scenes…'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(GameCounterSettingsScreen), findsOneWidget);
+  });
+
   testWidgets('shows tic tac toe acknowledgements', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -259,6 +388,7 @@ void main() {
   testWidgets('opens the tic tac toe tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -269,6 +399,7 @@ void main() {
   testWidgets('lets the bot reply in tic tac toe', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -284,6 +415,7 @@ void main() {
   testWidgets('customizes tic tac toe symbols', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -304,6 +436,7 @@ void main() {
   testWidgets('plays tic tac toe with two players', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -327,6 +460,7 @@ void main() {
   ) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -352,6 +486,7 @@ void main() {
   ) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -385,6 +520,7 @@ void main() {
   ) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 

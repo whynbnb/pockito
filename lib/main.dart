@@ -495,6 +495,17 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _ToolTile(
+              icon: Icons.sports_esports_outlined,
+              title: tr(context, 'Game Counter', '游戏计数器'),
+              subtitle: tr(
+                context,
+                'Place custom counters for board games and parties.',
+                '为桌游和聚会摆放自定义计数器面板。',
+              ),
+              onTap: () => _open(context, const GameCounterScreen()),
+            ),
+            const SizedBox(height: 12),
+            _ToolTile(
               icon: Icons.transform,
               title: tr(context, 'Basexx', 'Base 编解码'),
               subtitle: tr(
@@ -678,6 +689,268 @@ class CounterStore {
       final file = await _resolveFile();
       await file.writeAsString(
         jsonEncode(items.map((item) => item.toJson()).toList()),
+        flush: true,
+      );
+    } catch (_) {}
+  }
+}
+
+class GameCounterType {
+  GameCounterType({required this.id, required this.name});
+
+  final String id;
+  String name;
+
+  Map<String, dynamic> toJson() => {'id': id, 'name': name};
+
+  factory GameCounterType.fromJson(Map<String, dynamic> json) =>
+      GameCounterType(
+        id: json['id'] as String,
+        name: json['name'] as String? ?? '',
+      );
+}
+
+class GameUser {
+  GameUser({
+    required this.id,
+    this.name = '',
+    this.activeIndex = 0,
+    this.rotation = 0,
+  });
+
+  final String id;
+  String name;
+  int activeIndex;
+  int rotation;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'activeIndex': activeIndex,
+    'rotation': rotation,
+  };
+
+  factory GameUser.fromJson(Map<String, dynamic> json) => GameUser(
+    id: json['id'] as String,
+    name: json['name'] as String? ?? '',
+    activeIndex: (json['activeIndex'] as num?)?.toInt() ?? 0,
+    rotation: (json['rotation'] as num?)?.toInt() ?? 0,
+  );
+}
+
+class GameCounterRecord {
+  GameCounterRecord({
+    required this.time,
+    required this.userId,
+    required this.typeId,
+    required this.delta,
+    required this.value,
+  });
+
+  final DateTime time;
+  final String userId;
+  final String typeId;
+  final int delta;
+  final int value;
+
+  Map<String, dynamic> toJson() => {
+    'time': time.toIso8601String(),
+    'userId': userId,
+    'typeId': typeId,
+    'delta': delta,
+    'value': value,
+  };
+
+  factory GameCounterRecord.fromJson(Map<String, dynamic> json) =>
+      GameCounterRecord(
+        time:
+            DateTime.tryParse(json['time'] as String? ?? '') ?? DateTime.now(),
+        userId: json['userId'] as String? ?? '',
+        typeId: json['typeId'] as String? ?? '',
+        delta: (json['delta'] as num?)?.toInt() ?? 0,
+        value: (json['value'] as num?)?.toInt() ?? 0,
+      );
+}
+
+class GameScene {
+  GameScene({
+    required this.id,
+    required this.name,
+    List<GameCounterType>? types,
+    List<GameUser>? users,
+    Map<String, Map<String, int>>? values,
+    List<GameCounterRecord>? history,
+  }) : types = types ?? [],
+       users = users ?? [],
+       values = values ?? {},
+       history = history ?? [];
+
+  final String id;
+  String name;
+  final List<GameCounterType> types;
+  final List<GameUser> users;
+  final Map<String, Map<String, int>> values;
+  final List<GameCounterRecord> history;
+
+  static const maxHistory = 1000;
+
+  GameCounterType? typeAt(int index) =>
+      types.isEmpty ? null : types[index.clamp(0, types.length - 1)];
+
+  GameCounterType? typeById(String? typeId) {
+    for (final type in types) {
+      if (type.id == typeId) return type;
+    }
+    return null;
+  }
+
+  GameUser? userById(String? userId) {
+    for (final user in users) {
+      if (user.id == userId) return user;
+    }
+    return null;
+  }
+
+  int valueFor(String userId, String typeId) => values[userId]?[typeId] ?? 0;
+
+  void setValueFor(String userId, String typeId, int value) =>
+      (values[userId] ??= {})[typeId] = value;
+
+  void record(GameUser user, GameCounterType type, int delta) {
+    if (delta == 0) return;
+    history.add(
+      GameCounterRecord(
+        time: DateTime.now(),
+        userId: user.id,
+        typeId: type.id,
+        delta: delta,
+        value: valueFor(user.id, type.id),
+      ),
+    );
+    if (history.length > maxHistory) {
+      history.removeRange(0, history.length - maxHistory);
+    }
+  }
+
+  void removeType(String typeId) {
+    types.removeWhere((type) => type.id == typeId);
+    for (final entry in values.values) {
+      entry.remove(typeId);
+    }
+    history.removeWhere((item) => item.typeId == typeId);
+    _clampActiveIndexes();
+  }
+
+  void removeUser(String userId) {
+    users.removeWhere((user) => user.id == userId);
+    values.remove(userId);
+    history.removeWhere((item) => item.userId == userId);
+  }
+
+  void _clampActiveIndexes() {
+    final last = types.isEmpty ? 0 : types.length - 1;
+    for (final user in users) {
+      if (user.activeIndex > last) user.activeIndex = last;
+      if (user.activeIndex < 0) user.activeIndex = 0;
+    }
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'types': types.map((type) => type.toJson()).toList(),
+    'users': users.map((user) => user.toJson()).toList(),
+    'values': values.map(
+      (userId, byType) => MapEntry(userId, Map<String, int>.from(byType)),
+    ),
+    'history': history.map((item) => item.toJson()).toList(),
+  };
+
+  factory GameScene.fromJson(Map<String, dynamic> json) => GameScene(
+    id: json['id'] as String,
+    name: json['name'] as String? ?? '',
+    types: (json['types'] as List?)
+        ?.whereType<Map>()
+        .map(
+          (entry) => GameCounterType.fromJson(Map<String, dynamic>.from(entry)),
+        )
+        .toList(),
+    users: (json['users'] as List?)
+        ?.whereType<Map>()
+        .map((entry) => GameUser.fromJson(Map<String, dynamic>.from(entry)))
+        .toList(),
+    values: (json['values'] as Map?)?.map(
+      (userId, byType) => MapEntry(
+        '$userId',
+        (byType as Map?)?.map(
+              (typeId, value) =>
+                  MapEntry('$typeId', (value as num?)?.toInt() ?? 0),
+            ) ??
+            <String, int>{},
+      ),
+    ),
+    history: (json['history'] as List?)
+        ?.whereType<Map>()
+        .map(
+          (entry) =>
+              GameCounterRecord.fromJson(Map<String, dynamic>.from(entry)),
+        )
+        .toList(),
+  );
+}
+
+class GameCounterData {
+  GameCounterData({List<GameScene>? scenes, this.activeSceneId})
+    : scenes = scenes ?? [];
+
+  final List<GameScene> scenes;
+  String? activeSceneId;
+}
+
+class GameCounterStore {
+  GameCounterStore([this._directory]);
+  static const _fileName = 'tool_game_counters.json';
+  final Directory? _directory;
+  File? _file;
+
+  Future<File> _resolveFile() async {
+    final cached = _file;
+    if (cached != null) return cached;
+    final directory = _directory ?? await getApplicationSupportDirectory();
+    final file = File('${directory.path}${Platform.pathSeparator}$_fileName');
+    _file = file;
+    return file;
+  }
+
+  Future<GameCounterData> load() async {
+    try {
+      final file = await _resolveFile();
+      if (!await file.exists()) return GameCounterData();
+      final raw = await file.readAsString();
+      if (raw.trim().isEmpty) return GameCounterData();
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return GameCounterData();
+      final scenes = (decoded['scenes'] as List?)
+          ?.whereType<Map>()
+          .map((entry) => GameScene.fromJson(Map<String, dynamic>.from(entry)))
+          .toList();
+      return GameCounterData(
+        scenes: scenes ?? [],
+        activeSceneId: decoded['activeScene'] as String?,
+      );
+    } catch (_) {
+      return GameCounterData();
+    }
+  }
+
+  Future<void> save(GameCounterData data) async {
+    try {
+      final file = await _resolveFile();
+      await file.writeAsString(
+        jsonEncode({
+          'activeScene': data.activeSceneId,
+          'scenes': data.scenes.map((scene) => scene.toJson()).toList(),
+        }),
         flush: true,
       );
     } catch (_) {}
@@ -1266,6 +1539,1163 @@ class _EmptyCounters extends StatelessWidget {
       ),
     ),
   );
+}
+
+String newGameId() =>
+    '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 31)}';
+
+class GameCounterScreen extends StatefulWidget {
+  const GameCounterScreen({super.key});
+  @override
+  State<GameCounterScreen> createState() => _GameCounterScreenState();
+}
+
+class _GameCounterScreenState extends State<GameCounterScreen> {
+  final _store = GameCounterStore();
+  final _data = GameCounterData();
+  bool _initialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_initialized) return;
+    _initialized = true;
+    _ensureDefaultScene();
+    _load();
+  }
+
+  void _ensureDefaultScene() {
+    if (_data.scenes.isNotEmpty) return;
+    final scene = GameScene(
+      id: newGameId(),
+      name: tr(context, 'Game 1', '游戏 1'),
+      types: [
+        GameCounterType(id: newGameId(), name: tr(context, 'Score', '计分')),
+      ],
+      users: [
+        GameUser(id: newGameId()),
+        GameUser(id: newGameId()),
+      ],
+    );
+    _data.scenes.add(scene);
+    _data.activeSceneId = scene.id;
+  }
+
+  Future<void> _load() async {
+    final loaded = await _store.load();
+    if (!mounted) return;
+    if (loaded.scenes.isEmpty) {
+      unawaited(_store.save(_data));
+      return;
+    }
+    setState(() {
+      _data.scenes
+        ..clear()
+        ..addAll(loaded.scenes);
+      _data.activeSceneId = loaded.activeSceneId;
+    });
+  }
+
+  void _persist([GameCounterData? _]) {
+    unawaited(_store.save(_data));
+  }
+
+  GameScene? get _activeScene {
+    if (_data.scenes.isEmpty) return null;
+    return _data.scenes.firstWhere(
+      (scene) => scene.id == _data.activeSceneId,
+      orElse: () => _data.scenes.first,
+    );
+  }
+
+  void _selectScene(GameScene scene) {
+    setState(() => _data.activeSceneId = scene.id);
+    _persist();
+  }
+
+  String _userLabel(GameScene scene, GameUser user) =>
+      user.name.isEmpty ? 'P${scene.users.indexOf(user) + 1}' : user.name;
+
+  void _bump(GameScene scene, GameUser user, int delta) {
+    final type = scene.typeAt(user.activeIndex);
+    if (type == null) return;
+    setState(() {
+      final current = scene.valueFor(user.id, type.id);
+      final next = (current + delta).clamp(0, 1 << 31);
+      scene.setValueFor(user.id, type.id, next);
+      scene.record(user, type, next - current);
+    });
+    _persist();
+  }
+
+  void _reset(GameScene scene, GameUser user) {
+    final type = scene.typeAt(user.activeIndex);
+    if (type == null || scene.valueFor(user.id, type.id) == 0) return;
+    setState(() {
+      final delta = -scene.valueFor(user.id, type.id);
+      scene.setValueFor(user.id, type.id, 0);
+      scene.record(user, type, delta);
+    });
+    _persist();
+  }
+
+  void _setActive(GameScene scene, GameUser user, int index) {
+    if (user.activeIndex == index) return;
+    setState(() => user.activeIndex = index);
+    _persist();
+  }
+
+  void _rotate(GameUser user) {
+    setState(() => user.rotation = (user.rotation + 1) % 4);
+    _persist();
+  }
+
+  Future<void> _resetAll(GameScene scene) async {
+    var hasValue = false;
+    for (final user in scene.users) {
+      for (final type in scene.types) {
+        if (scene.valueFor(user.id, type.id) != 0) {
+          hasValue = true;
+          break;
+        }
+      }
+      if (hasValue) break;
+    }
+    if (!hasValue) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Reset all counters', '所有计数器清零')),
+        content: Text(
+          tr(
+            context,
+            'Set every counter in "${scene.name}" back to zero?',
+            '将“${scene.name}”的所有计数器清零？',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(tr(context, 'Cancel', '取消')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(tr(context, 'Reset', '清零')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      for (final user in scene.users) {
+        for (final type in scene.types) {
+          final current = scene.valueFor(user.id, type.id);
+          if (current == 0) continue;
+          scene.setValueFor(user.id, type.id, 0);
+          scene.record(user, type, -current);
+        }
+      }
+    });
+    _persist();
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            GameCounterSettingsScreen(data: _data, onChanged: _persist),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  void _openHistory(GameScene scene) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            GameCounterHistoryScreen(scene: scene, onChanged: _persist),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scene = _activeScene;
+    return Scaffold(
+      appBar: AppBar(
+        title: _SceneSelector(
+          sceneName: scene?.name ?? tr(context, 'Game Counter', '游戏计数器'),
+          scenes: _data.scenes,
+          activeId: scene?.id,
+          onSelect: _selectScene,
+          onManage: _openSettings,
+        ),
+        actions: [
+          IconButton(
+            tooltip: tr(context, 'Reset all counters', '所有计数器清零'),
+            onPressed: scene == null ? null : () => _resetAll(scene),
+            icon: const Icon(Icons.restart_alt),
+          ),
+          IconButton(
+            tooltip: tr(context, 'History', '历史记录'),
+            onPressed: scene == null ? null : () => _openHistory(scene),
+            icon: const Icon(Icons.history),
+          ),
+          IconButton(
+            tooltip: tr(context, 'Settings', '设置'),
+            onPressed: _openSettings,
+            icon: const Icon(Icons.tune),
+          ),
+        ],
+      ),
+      body: scene == null || scene.users.isEmpty
+          ? _EmptyGamePanels(onAdd: _openSettings)
+          : _UsersGrid(
+              scene: scene,
+              userLabel: (user) => _userLabel(scene, user),
+              onBump: (user, delta) => _bump(scene, user, delta),
+              onReset: (user) => _reset(scene, user),
+              onSetActive: (user, index) => _setActive(scene, user, index),
+              onRotate: _rotate,
+            ),
+    );
+  }
+}
+
+class _SceneSelector extends StatelessWidget {
+  const _SceneSelector({
+    required this.sceneName,
+    required this.scenes,
+    required this.activeId,
+    required this.onSelect,
+    required this.onManage,
+  });
+
+  final String sceneName;
+  final List<GameScene> scenes;
+  final String? activeId;
+  final ValueChanged<GameScene> onSelect;
+  final VoidCallback onManage;
+
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<String>(
+    tooltip: tr(context, 'Switch scene', '切换场景'),
+    onSelected: (value) {
+      if (value == '__manage__') {
+        onManage();
+        return;
+      }
+      for (final scene in scenes) {
+        if (scene.id == value) {
+          onSelect(scene);
+          return;
+        }
+      }
+    },
+    itemBuilder: (context) => [
+      for (final scene in scenes)
+        PopupMenuItem(
+          value: scene.id,
+          child: Row(
+            children: [
+              Icon(
+                scene.id == activeId ? Icons.check : Icons.circle_outlined,
+                size: 18,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(scene.name, overflow: TextOverflow.ellipsis),
+              ),
+            ],
+          ),
+        ),
+      const PopupMenuDivider(),
+      PopupMenuItem(
+        value: '__manage__',
+        child: Text(tr(context, 'Manage scenes…', '管理场景…')),
+      ),
+    ],
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            sceneName,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+        ),
+        const Icon(Icons.arrow_drop_down),
+      ],
+    ),
+  );
+}
+
+class _UsersGrid extends StatelessWidget {
+  const _UsersGrid({
+    required this.scene,
+    required this.userLabel,
+    required this.onBump,
+    required this.onReset,
+    required this.onSetActive,
+    required this.onRotate,
+  });
+
+  final GameScene scene;
+  final String Function(GameUser user) userLabel;
+  final void Function(GameUser user, int delta) onBump;
+  final void Function(GameUser user) onReset;
+  final void Function(GameUser user, int index) onSetActive;
+  final void Function(GameUser user) onRotate;
+
+  int _columns(int count, double width) {
+    if (count <= 1) return 1;
+    if (count == 2) return width >= 720 ? 2 : 1;
+    if (count <= 4) return 2;
+    if (count <= 6) return width >= 720 ? 3 : 2;
+    return width >= 960 ? 4 : (width >= 640 ? 3 : 2);
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      const spacing = 12.0;
+      final users = scene.users;
+      final count = users.length;
+      final columns = _columns(count, constraints.maxWidth);
+      final rows = (count / columns).ceil();
+      final fitHeight = (constraints.maxHeight - spacing * (rows - 1)) / rows;
+      final tileHeight = fitHeight < 150 ? 150.0 : fitHeight;
+      final tileWidth =
+          (constraints.maxWidth - spacing * (columns - 1)) / columns;
+      return GridView.builder(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: columns,
+          mainAxisSpacing: spacing,
+          crossAxisSpacing: spacing,
+          childAspectRatio: tileWidth / tileHeight,
+        ),
+        itemCount: count,
+        itemBuilder: (context, index) {
+          final user = users[index];
+          return _GameUserCard(
+            key: ValueKey(user.id),
+            scene: scene,
+            user: user,
+            label: userLabel(user),
+            onBump: (delta) => onBump(user, delta),
+            onReset: () => onReset(user),
+            onSetActive: (activeIndex) => onSetActive(user, activeIndex),
+            onRotate: () => onRotate(user),
+          );
+        },
+      );
+    },
+  );
+}
+
+class _GameUserCard extends StatefulWidget {
+  const _GameUserCard({
+    super.key,
+    required this.scene,
+    required this.user,
+    required this.label,
+    required this.onBump,
+    required this.onReset,
+    required this.onSetActive,
+    required this.onRotate,
+  });
+
+  final GameScene scene;
+  final GameUser user;
+  final String label;
+  final ValueChanged<int> onBump;
+  final VoidCallback onReset;
+  final ValueChanged<int> onSetActive;
+  final VoidCallback onRotate;
+
+  @override
+  State<_GameUserCard> createState() => _GameUserCardState();
+}
+
+class _GameUserCardState extends State<_GameUserCard> {
+  late final PageController _controller = PageController(
+    initialPage: widget.user.activeIndex.clamp(0, _lastIndex),
+  );
+
+  int get _lastIndex =>
+      widget.scene.types.isEmpty ? 0 : widget.scene.types.length - 1;
+
+  @override
+  void didUpdateWidget(covariant _GameUserCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_controller.hasClients &&
+        _controller.page?.round() != widget.user.activeIndex) {
+      _controller.animateToPage(
+        widget.user.activeIndex.clamp(0, _lastIndex),
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final types = widget.scene.types;
+    final user = widget.user;
+    final activeType = widget.scene.typeAt(user.activeIndex);
+    Widget content = Card(
+      clipBehavior: Clip.antiAlias,
+      child: activeType == null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  tr(
+                    context,
+                    'Add counter types in settings.',
+                    '请在设置中添加计数器类型。',
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
+          : Column(
+              children: [
+                _UserHeader(
+                  label: widget.label,
+                  types: types,
+                  activeIndex: user.activeIndex,
+                  onSelect: widget.onSetActive,
+                  onRotate: widget.onRotate,
+                ),
+                Expanded(
+                  child: PageView.builder(
+                    controller: _controller,
+                    onPageChanged: widget.onSetActive,
+                    itemCount: types.length,
+                    itemBuilder: (context, index) => _UserCounterPage(
+                      name: types[index].name,
+                      value: widget.scene.valueFor(user.id, types[index].id),
+                      onBump: widget.onBump,
+                      onReset: widget.onReset,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+    );
+    if (user.rotation % 4 != 0) {
+      content = RotatedBox(quarterTurns: user.rotation % 4, child: content);
+    }
+    return content;
+  }
+}
+
+class _UserHeader extends StatelessWidget {
+  const _UserHeader({
+    required this.label,
+    required this.types,
+    required this.activeIndex,
+    required this.onSelect,
+    required this.onRotate,
+  });
+
+  final String label;
+  final List<GameCounterType> types;
+  final int activeIndex;
+  final ValueChanged<int> onSelect;
+  final VoidCallback onRotate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 44,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.only(
+                left: 12,
+                right: 4,
+                top: 6,
+                bottom: 6,
+              ),
+              itemCount: types.length + 1,
+              separatorBuilder: (context, index) => const SizedBox(width: 6),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return Chip(
+                    avatar: const Icon(Icons.person_outline, size: 16),
+                    label: Text(label, overflow: TextOverflow.ellipsis),
+                    visualDensity: VisualDensity.compact,
+                  );
+                }
+                final typeIndex = index - 1;
+                return ChoiceChip(
+                  label: Text(types[typeIndex].name),
+                  selected: typeIndex == activeIndex,
+                  onSelected: (_) => onSelect(typeIndex),
+                  visualDensity: VisualDensity.compact,
+                );
+              },
+            ),
+          ),
+        ),
+        PopupMenuButton<String>(
+          tooltip: tr(context, 'Panel actions', '面板操作'),
+          onSelected: (value) {
+            if (value == 'rotate') onRotate();
+          },
+          itemBuilder: (context) => [
+            PopupMenuItem(
+              value: 'rotate',
+              child: Text(tr(context, 'Rotate 90°', '旋转 90°')),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _UserCounterPage extends StatelessWidget {
+  const _UserCounterPage({
+    required this.name,
+    required this.value,
+    required this.onBump,
+    required this.onReset,
+  });
+
+  final String name;
+  final int value;
+  final ValueChanged<int> onBump;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      child: Column(
+        children: [
+          Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => onBump(1),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text(
+                      '$value',
+                      style: theme.textTheme.displayLarge?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              IconButton.filledTonal(
+                tooltip: tr(context, 'Decrease by one', '减一'),
+                onPressed: value <= 0 ? null : () => onBump(-1),
+                icon: const Icon(Icons.remove),
+              ),
+              IconButton(
+                tooltip: tr(context, 'Reset to zero', '归零'),
+                onPressed: value == 0 ? null : onReset,
+                icon: const Icon(Icons.restart_alt),
+              ),
+              IconButton.filled(
+                tooltip: tr(context, 'Add one', '加一'),
+                onPressed: () => onBump(1),
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyGamePanels extends StatelessWidget {
+  const _EmptyGamePanels({required this.onAdd});
+
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.sports_esports_outlined,
+            size: 56,
+            color: Theme.of(context).colorScheme.outline,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            tr(context, 'No players yet', '还没有玩家'),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            tr(
+              context,
+              'Open settings to add players and counter types for your game.',
+              '打开设置，为你的游戏添加玩家和计数器类型。',
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: onAdd,
+            icon: const Icon(Icons.add),
+            label: Text(tr(context, 'Open settings', '打开设置')),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class GameCounterHistoryScreen extends StatefulWidget {
+  const GameCounterHistoryScreen({
+    super.key,
+    required this.scene,
+    required this.onChanged,
+  });
+
+  final GameScene scene;
+  final VoidCallback onChanged;
+
+  @override
+  State<GameCounterHistoryScreen> createState() =>
+      _GameCounterHistoryScreenState();
+}
+
+class _GameCounterHistoryScreenState extends State<GameCounterHistoryScreen> {
+  GameScene get _scene => widget.scene;
+
+  Future<void> _clear() async {
+    if (_scene.history.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Clear records', '清除记录')),
+        content: Text(
+          tr(
+            context,
+            'Clear the history for "${_scene.name}"?',
+            '清除“${_scene.name}”的历史记录？',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(tr(context, 'Cancel', '取消')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(tr(context, 'Clear', '清除')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _scene.history.clear());
+    widget.onChanged();
+  }
+
+  String _userLabel(String userId) {
+    final index = _scene.users.indexWhere((user) => user.id == userId);
+    if (index < 0) {
+      return tr(context, 'Removed player', '已移除的玩家');
+    }
+    final user = _scene.users[index];
+    return user.name.isEmpty
+        ? tr(context, 'P${index + 1}', 'P${index + 1}')
+        : user.name;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final records = _scene.history.reversed.toList();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(tr(context, 'History', '历史记录')),
+        actions: [
+          IconButton(
+            tooltip: tr(context, 'Clear records', '清除记录'),
+            onPressed: records.isEmpty ? null : _clear,
+            icon: const Icon(Icons.delete_sweep_outlined),
+          ),
+        ],
+      ),
+      body: records.isEmpty
+          ? Center(
+              child: Text(
+                tr(context, 'No records yet', '还没有记录'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: records.length,
+              separatorBuilder: (context, index) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final record = records[index];
+                final typeName =
+                    _scene.typeById(record.typeId)?.name ??
+                    tr(context, 'Removed counter', '已移除的计数器');
+                final sign = record.delta > 0 ? '+' : '';
+                return ListTile(
+                  dense: true,
+                  leading: CircleAvatar(
+                    child: Text(
+                      _userLabel(record.userId),
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ),
+                  title: Text('$typeName  $sign${record.delta}'),
+                  subtitle: Text(formatTimestamp(record.time)),
+                  trailing: Text(
+                    '${record.value}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class GameCounterSettingsScreen extends StatefulWidget {
+  const GameCounterSettingsScreen({
+    super.key,
+    required this.data,
+    required this.onChanged,
+  });
+
+  final GameCounterData data;
+  final ValueChanged<GameCounterData> onChanged;
+
+  @override
+  State<GameCounterSettingsScreen> createState() =>
+      _GameCounterSettingsScreenState();
+}
+
+class _GameCounterSettingsScreenState extends State<GameCounterSettingsScreen> {
+  GameCounterData get _data => widget.data;
+
+  void _changed() {
+    widget.onChanged(_data);
+    setState(() {});
+  }
+
+  Future<String?> _prompt({
+    required String title,
+    required String label,
+    String initial = '',
+  }) => showDialog<String>(
+    context: context,
+    builder: (context) =>
+        _PromptDialog(title: title, label: label, initial: initial),
+  );
+
+  GameScene _ensureScene() {
+    if (_data.scenes.isEmpty) {
+      final scene = GameScene(
+        id: newGameId(),
+        name: tr(context, 'Game 1', '游戏 1'),
+      );
+      _data.scenes.add(scene);
+      _data.activeSceneId = scene.id;
+    }
+    _data.activeSceneId ??= _data.scenes.first.id;
+    return _data.scenes.firstWhere(
+      (scene) => scene.id == _data.activeSceneId,
+      orElse: () => _data.scenes.first,
+    );
+  }
+
+  Future<void> _addScene() async {
+    final name = await _prompt(
+      title: tr(context, 'New scene', '新建场景'),
+      label: tr(context, 'Scene name', '场景名称'),
+      initial: tr(
+        context,
+        'Game ${_data.scenes.length + 1}',
+        '游戏 ${_data.scenes.length + 1}',
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    if (!mounted) return;
+    final scene = GameScene(
+      id: newGameId(),
+      name: name,
+      types: [
+        GameCounterType(id: newGameId(), name: tr(context, 'Score', '计分')),
+      ],
+      users: [
+        GameUser(id: newGameId()),
+        GameUser(id: newGameId()),
+      ],
+    );
+    _data.scenes.add(scene);
+    _data.activeSceneId = scene.id;
+    _changed();
+  }
+
+  Future<void> _renameScene(GameScene scene) async {
+    final name = await _prompt(
+      title: tr(context, 'Rename scene', '重命名场景'),
+      label: tr(context, 'Scene name', '场景名称'),
+      initial: scene.name,
+    );
+    if (name == null || name.isEmpty) return;
+    scene.name = name;
+    _changed();
+  }
+
+  Future<void> _deleteScene(GameScene scene) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Delete scene', '删除场景')),
+        content: Text(
+          tr(
+            context,
+            'Delete "${scene.name}" and all its players?',
+            '删除“${scene.name}”及其所有玩家？',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(tr(context, 'Cancel', '取消')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(tr(context, 'Delete', '删除')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    _data.scenes.remove(scene);
+    if (_data.activeSceneId == scene.id) {
+      _data.activeSceneId = _data.scenes.isEmpty ? null : _data.scenes.first.id;
+    }
+    _changed();
+  }
+
+  Future<void> _addType(GameScene scene) async {
+    final name = await _prompt(
+      title: tr(context, 'New counter type', '新建计数器类型'),
+      label: tr(context, 'Counter name', '计数器名称'),
+      initial: tr(
+        context,
+        'Counter ${scene.types.length + 1}',
+        '计数器 ${scene.types.length + 1}',
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    scene.types.add(GameCounterType(id: newGameId(), name: name));
+    _changed();
+  }
+
+  Future<void> _renameType(GameScene scene, GameCounterType type) async {
+    final name = await _prompt(
+      title: tr(context, 'Rename counter type', '重命名计数器类型'),
+      label: tr(context, 'Counter name', '计数器名称'),
+      initial: type.name,
+    );
+    if (name == null || name.isEmpty) return;
+    type.name = name;
+    _changed();
+  }
+
+  Future<void> _removeType(GameScene scene, GameCounterType type) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr(context, 'Delete counter type', '删除计数器类型')),
+        content: Text(
+          tr(
+            context,
+            'Delete "${type.name}"? Its history will be discarded.',
+            '删除“${type.name}”？其历史记录将被废弃。',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(tr(context, 'Cancel', '取消')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(tr(context, 'Delete', '删除')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    scene.removeType(type.id);
+    _changed();
+  }
+
+  Future<void> _setUserCount(GameScene scene, int count) async {
+    final target = count.clamp(1, 24);
+    setState(() {
+      while (scene.users.length > target) {
+        scene.removeUser(scene.users.last.id);
+      }
+      while (scene.users.length < target) {
+        scene.users.add(GameUser(id: newGameId()));
+      }
+    });
+    _changed();
+  }
+
+  Future<void> _editUserCount(GameScene scene) async {
+    final value = await _prompt(
+      title: tr(context, 'Number of players', '玩家数量'),
+      label: tr(context, 'Players', '玩家'),
+      initial: '${scene.users.length}',
+    );
+    if (value == null) return;
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) return;
+    await _setUserCount(scene, parsed);
+  }
+
+  Future<void> _renameUser(GameScene scene, GameUser user, int index) async {
+    final name = await _prompt(
+      title: tr(context, 'Rename player', '重命名玩家'),
+      label: tr(context, 'Player name', '玩家名称'),
+      initial: user.name,
+    );
+    if (name == null) return;
+    setState(() => user.name = name.trim());
+    _changed();
+  }
+
+  void _resetScene(GameScene scene) {
+    setState(() {
+      for (final user in scene.users) {
+        scene.values[user.id] = {};
+      }
+      scene.history.clear();
+    });
+    _changed();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scene = _ensureScene();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(tr(context, 'Game counter settings', '游戏计数器设置')),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+        children: [
+          Text(
+            tr(context, 'Scenes', '场景'),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final item in _data.scenes)
+                ChoiceChip(
+                  label: Text(item.name),
+                  selected: item.id == scene.id,
+                  onSelected: (_) {
+                    _data.activeSceneId = item.id;
+                    _changed();
+                  },
+                ),
+              ActionChip(
+                avatar: const Icon(Icons.add, size: 18),
+                label: Text(tr(context, 'New scene', '新建场景')),
+                onPressed: _addScene,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _renameScene(scene),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: Text(tr(context, 'Rename scene', '重命名场景')),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _resetScene(scene),
+                  icon: const Icon(Icons.restart_alt),
+                  label: Text(tr(context, 'Reset scene', '场景归零')),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: tr(context, 'Delete scene', '删除场景'),
+                onPressed: _data.scenes.length <= 1
+                    ? null
+                    : () => _deleteScene(scene),
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
+          const Divider(height: 32),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  tr(context, 'Counter types', '计数器类型'),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => _addType(scene),
+                icon: const Icon(Icons.add),
+                label: Text(tr(context, 'Add type', '添加类型')),
+              ),
+            ],
+          ),
+          Text(
+            tr(
+              context,
+              'These counters are shared by every player, like health or mana.',
+              '这些计数器由所有玩家共享，例如血量或魔法值。',
+            ),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          if (scene.types.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                tr(
+                  context,
+                  'No counter types yet. Add one to start counting.',
+                  '还没有计数器类型，添加一个开始计数。',
+                ),
+              ),
+            ),
+          for (final type in scene.types)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.tag),
+              title: Text(type.name),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: tr(context, 'Rename', '重命名'),
+                    onPressed: () => _renameType(scene, type),
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                  IconButton(
+                    tooltip: tr(context, 'Delete', '删除'),
+                    onPressed: scene.types.length <= 1
+                        ? null
+                        : () => _removeType(scene, type),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+            ),
+          const Divider(height: 32),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  tr(context, 'Players', '玩家'),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              Text(
+                '${scene.users.length}',
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(color: Theme.of(context).colorScheme.primary),
+              ),
+              IconButton(
+                tooltip: tr(context, 'Decrease', '减少'),
+                onPressed: scene.users.length <= 1
+                    ? null
+                    : () => _setUserCount(scene, scene.users.length - 1),
+                icon: const Icon(Icons.remove_circle_outline),
+              ),
+              IconButton(
+                tooltip: tr(context, 'Increase', '增加'),
+                onPressed: scene.users.length >= 24
+                    ? null
+                    : () => _setUserCount(scene, scene.users.length + 1),
+                icon: const Icon(Icons.add_circle_outline),
+              ),
+              IconButton(
+                tooltip: tr(context, 'Set number of players', '设置玩家数量'),
+                onPressed: () => _editUserCount(scene),
+                icon: const Icon(Icons.numbers),
+              ),
+            ],
+          ),
+          Text(
+            tr(
+              context,
+              'Each player gets a panel on the main screen.',
+              '每位玩家在主界面都有一个面板。',
+            ),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          for (var i = 0; i < scene.users.length; i++)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: CircleAvatar(child: Text('${i + 1}')),
+              title: Text(
+                scene.users[i].name.isEmpty
+                    ? tr(context, 'Player ${i + 1}', '玩家 ${i + 1}')
+                    : scene.users[i].name,
+              ),
+              trailing: IconButton(
+                tooltip: tr(context, 'Rename', '重命名'),
+                onPressed: () => _renameUser(scene, scene.users[i], i),
+                icon: const Icon(Icons.edit_outlined),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 enum BaseVariant { base16, base32, base58, base64, base64Url }
