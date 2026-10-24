@@ -10,6 +10,9 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Play the frequency generator through the main speaker even when the
+    // ring/silent switch is on, and mix with other audio instead of stopping it.
+    try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

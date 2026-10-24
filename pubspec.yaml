@@ -41,6 +41,7 @@ dependencies:
   file_picker: ^12.2.0
   pinyin: ^3.3.0
   url_launcher: ^6.3.2
+  flutter_soloud: ^5.2.1
 
 dev_dependencies:
   flutter_test:
@@ -94,3 +95,10 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# The frequency generator only needs synthesized waveforms, so skip the
+# prebuilt Ogg/Vorbis/Opus/FLAC libraries and the download they trigger.
+hooks:
+  user_defines:
+    flutter_soloud:
+      no_xiph_libs: true

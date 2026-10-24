@@ -10,6 +10,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pinyin/pinyin.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -436,6 +437,14 @@ const toolInfos = <ToolInfo>[
     englishNote: 'Requires a device with a vibration motor. Desktop platforms have no vibration hardware.',
     chineseNote: '需要带震动马达的设备；桌面平台没有震动硬件。',
   ),
+  ToolInfo(
+    id: 'tone-generator',
+    icon: Icons.graphic_eq,
+    englishTitle: 'Frequency Generator',
+    chineseTitle: '频率发生器',
+    englishSubtitle: 'Play a pure tone at any frequency and waveform.',
+    chineseSubtitle: '播放任意频率与波形的纯音。',
+  ),
 ];
 
 ToolInfo? toolInfoById(String id) {
@@ -618,6 +627,7 @@ class HomeScreen extends StatelessWidget {
     'tic-tac-toe' => const TicTacToeScreen(),
     'flashlight' => const FlashlightScreen(),
     'vibrator' => const VibratorScreen(),
+    'tone-generator' => const ToneGeneratorScreen(),
     _ => null,
   };
 
@@ -5819,6 +5829,611 @@ class _VibratorScreenState extends State<VibratorScreen>
                   _optionsSection(context),
                 ],
               ),
+      ),
+    ),
+  );
+}
+
+enum ToneWaveform { sine, square, triangle, saw }
+
+extension ToneWaveformDetails on ToneWaveform {
+  String get englishName => switch (this) {
+    ToneWaveform.sine => 'Sine',
+    ToneWaveform.square => 'Square',
+    ToneWaveform.triangle => 'Triangle',
+    ToneWaveform.saw => 'Sawtooth',
+  };
+
+  String get chineseName => switch (this) {
+    ToneWaveform.sine => '正弦波',
+    ToneWaveform.square => '方波',
+    ToneWaveform.triangle => '三角波',
+    ToneWaveform.saw => '锯齿波',
+  };
+
+  IconData get icon => switch (this) {
+    ToneWaveform.sine => Icons.waves,
+    ToneWaveform.square => Icons.crop_square,
+    ToneWaveform.triangle => Icons.change_history,
+    ToneWaveform.saw => Icons.show_chart,
+  };
+
+  WaveForm get nativeWaveform => switch (this) {
+    ToneWaveform.sine => WaveForm.sin,
+    ToneWaveform.square => WaveForm.fSquare,
+    ToneWaveform.triangle => WaveForm.triangle,
+    ToneWaveform.saw => WaveForm.fSaw,
+  };
+}
+
+const double toneMinFrequency = 20;
+const double toneMaxFrequency = 20000;
+const List<double> tonePresetFrequencies = [
+  20,
+  100,
+  440,
+  1000,
+  5000,
+  10000,
+  20000,
+];
+
+double clampToneFrequency(double hz) {
+  if (!hz.isFinite) return 440;
+  return hz.clamp(toneMinFrequency, toneMaxFrequency).toDouble();
+}
+
+double toneSliderToFrequency(double position) {
+  final t = position.clamp(0.0, 1.0);
+  return toneMinFrequency *
+      pow(toneMaxFrequency / toneMinFrequency, t).toDouble();
+}
+
+double toneFrequencyToSlider(double hz) =>
+    log(clampToneFrequency(hz) / toneMinFrequency) /
+    log(toneMaxFrequency / toneMinFrequency);
+
+String formatToneNumber(double hz) {
+  final clamped = clampToneFrequency(hz);
+  final rounded = clamped.roundToDouble();
+  return (clamped - rounded).abs() < 0.05
+      ? '${rounded.round()}'
+      : clamped.toStringAsFixed(1);
+}
+
+String formatToneFrequency(double hz) => '${formatToneNumber(hz)} Hz';
+
+({String name, int octave, int cents})? toneNoteForFrequency(double hz) {
+  if (!hz.isFinite || hz <= 0) return null;
+  final midi = 69 + 12 * (log(hz / 440) / ln2);
+  final rounded = midi.round();
+  if (rounded < 0) return null;
+  const names = [
+    'C',
+    'C#',
+    'D',
+    'D#',
+    'E',
+    'F',
+    'F#',
+    'G',
+    'G#',
+    'A',
+    'A#',
+    'B',
+  ];
+  return (
+    name: names[rounded % 12],
+    octave: rounded ~/ 12 - 1,
+    cents: ((midi - rounded) * 100).round(),
+  );
+}
+
+String formatToneNote(({String name, int octave, int cents}) note) {
+  final cents = note.cents == 0
+      ? '0'
+      : '${note.cents > 0 ? '+' : ''}${note.cents}';
+  return '${note.name}${note.octave} $cents ct';
+}
+
+double tonePeriodMilliseconds(double hz) => 1000 / clampToneFrequency(hz);
+
+double toneWavelengthCentimeters(double hz) => 34300 / clampToneFrequency(hz);
+
+class _ToneSynth {
+  final SoLoud _soloud = SoLoud.instance;
+  AudioSource? _source;
+  SoundHandle? _handle;
+
+  Future<void> start({
+    required double frequency,
+    required ToneWaveform waveform,
+    required double volume,
+  }) async {
+    if (!_soloud.isInitialized) {
+      await _soloud.init();
+    }
+    var source = _source;
+    if (source == null) {
+      source = await _soloud.loadWaveform(waveform.nativeWaveform, false, 1, 0);
+      _source = source;
+    }
+    _soloud.setWaveform(source, waveform.nativeWaveform);
+    _soloud.setWaveformFreq(source, frequency);
+    final handle = _soloud.play(source, volume: 0, looping: true);
+    _handle = handle;
+    _soloud.fadeVolume(handle, volume, const Duration(milliseconds: 60));
+  }
+
+  void setFrequency(double frequency) {
+    final source = _source;
+    if (source != null) _soloud.setWaveformFreq(source, frequency);
+  }
+
+  void setWaveform(ToneWaveform waveform) {
+    final source = _source;
+    if (source != null) _soloud.setWaveform(source, waveform.nativeWaveform);
+  }
+
+  void setVolume(double volume) {
+    final handle = _handle;
+    if (handle != null) _soloud.setVolume(handle, volume);
+  }
+
+  void stop({bool fade = true}) {
+    final handle = _handle;
+    if (handle == null) return;
+    _handle = null;
+    try {
+      if (fade) {
+        _soloud.fadeVolume(handle, 0, const Duration(milliseconds: 50));
+        _soloud.scheduleStop(handle, const Duration(milliseconds: 70));
+      } else {
+        unawaited(_soloud.stop(handle).catchError((_) {}));
+      }
+    } catch (_) {
+      // The engine may already be shutting down.
+    }
+  }
+
+  Future<void> dispose() async {
+    stop(fade: false);
+    final source = _source;
+    _source = null;
+    if (source == null) return;
+    try {
+      await _soloud.disposeSource(source);
+    } catch (_) {
+      // Ignore teardown errors when the engine is no longer available.
+    }
+  }
+}
+
+class ToneGeneratorScreen extends StatefulWidget {
+  const ToneGeneratorScreen({super.key});
+
+  @override
+  State<ToneGeneratorScreen> createState() => _ToneGeneratorScreenState();
+}
+
+class _ToneGeneratorScreenState extends State<ToneGeneratorScreen>
+    with WidgetsBindingObserver {
+  static const _defaultFrequency = 440.0;
+  final _synth = _ToneSynth();
+  final _frequencyController = TextEditingController(text: '440');
+  double _frequency = _defaultFrequency;
+  double _volume = 0.3;
+  ToneWaveform _waveform = ToneWaveform.sine;
+  bool _playing = false;
+  bool _starting = false;
+  String? _error;
+  String? _inputError;
+  int _session = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _session++;
+    unawaited(_synth.dispose());
+    _frequencyController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _stop();
+    }
+  }
+
+  Future<void> _start() async {
+    if (_starting || _playing) return;
+    final session = ++_session;
+    setState(() {
+      _starting = true;
+      _error = null;
+    });
+    try {
+      await _synth.start(
+        frequency: _frequency,
+        waveform: _waveform,
+        volume: _volume,
+      );
+      if (!mounted) return;
+      if (session != _session) {
+        // A stop request arrived while the engine was starting. Discard the
+        // tone that has just come up instead of leaving it running.
+        await _synth.dispose();
+        return;
+      }
+      setState(() => _playing = true);
+    } catch (error) {
+      if (!mounted || session != _session) return;
+      setState(() {
+        _error = tr(
+          context,
+          'Could not start the audio engine: $error',
+          '无法启动音频引擎：$error',
+        );
+      });
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  void _stop() {
+    _session++;
+    _synth.stop();
+    if (!mounted) return;
+    setState(() => _playing = false);
+  }
+
+  void _applyFrequency(double value, {bool syncField = true}) {
+    final frequency = clampToneFrequency(value);
+    setState(() {
+      _frequency = frequency;
+      _inputError = null;
+      if (syncField) _frequencyController.text = formatToneNumber(frequency);
+    });
+    _synth.setFrequency(frequency);
+  }
+
+  void _onFrequencyInput(String value) {
+    final parsed = double.tryParse(value.trim());
+    if (parsed == null ||
+        !parsed.isFinite ||
+        parsed < toneMinFrequency ||
+        parsed > toneMaxFrequency) {
+      setState(() {
+        _inputError = tr(
+          context,
+          'Enter a frequency between 20 and 20,000 Hz.',
+          '请输入 20 到 20,000 Hz 之间的频率。',
+        );
+      });
+      return;
+    }
+    _applyFrequency(parsed, syncField: false);
+  }
+
+  void _setVolume(double value) {
+    setState(() => _volume = value);
+    _synth.setVolume(value);
+  }
+
+  void _setWaveform(ToneWaveform waveform) {
+    setState(() => _waveform = waveform);
+    _synth.setWaveform(waveform);
+  }
+
+  Widget _toneCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final note = toneNoteForFrequency(_frequency);
+    final period = tonePeriodMilliseconds(_frequency);
+    final wavelength = toneWavelengthCentimeters(_frequency);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.graphic_eq, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  tr(context, 'Pure tone', '纯音'),
+                  style: theme.textTheme.titleMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      formatToneFrequency(_frequency),
+                      style: theme.textTheme.displaySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                if (note != null) ...[
+                  const SizedBox(width: 12),
+                  Text(
+                    formatToneNote(note),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              tr(
+                context,
+                'Period ${period.toStringAsFixed(2)} ms · Wavelength ${wavelength.toStringAsFixed(1)} cm',
+                '周期 ${period.toStringAsFixed(2)} 毫秒 · 波长 ${wavelength.toStringAsFixed(1)} 厘米',
+              ),
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: (_starting || _playing) ? _stop : _start,
+                icon: _starting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        _playing
+                            ? Icons.stop_rounded
+                            : Icons.play_arrow_rounded,
+                      ),
+                label: Text(
+                  (_starting || _playing)
+                      ? tr(context, 'Stop', '停止')
+                      : tr(context, 'Play', '播放'),
+                ),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _frequencyCard(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr(context, 'Frequency', '频率'),
+              style: theme.textTheme.titleMedium,
+            ),
+            Slider(
+              value: toneFrequencyToSlider(_frequency),
+              label: formatToneFrequency(_frequency),
+              onChanged: (value) =>
+                  _applyFrequency(toneSliderToFrequency(value)),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _frequencyController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    onChanged: _onFrequencyInput,
+                    onSubmitted: (value) {
+                      final parsed = double.tryParse(value.trim());
+                      _applyFrequency(parsed ?? _frequency);
+                    },
+                    decoration: InputDecoration(
+                      labelText: tr(context, 'Exact frequency', '精确频率'),
+                      suffixText: 'Hz',
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      errorText: _inputError,
+                      errorMaxLines: 2,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  tooltip: tr(context, 'Decrease by 1 Hz', '减少 1 Hz'),
+                  onPressed: () => _applyFrequency(_frequency - 1),
+                  icon: const Icon(Icons.remove),
+                ),
+                const SizedBox(width: 4),
+                IconButton.filledTonal(
+                  tooltip: tr(context, 'Increase by 1 Hz', '增加 1 Hz'),
+                  onPressed: () => _applyFrequency(_frequency + 1),
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: () => _applyFrequency(_frequency - 10),
+                  child: const Text('−10'),
+                ),
+                OutlinedButton(
+                  onPressed: () => _applyFrequency(_frequency + 10),
+                  child: const Text('+10'),
+                ),
+                OutlinedButton(
+                  onPressed: () => _applyFrequency(_frequency / 2),
+                  child: const Text('÷2'),
+                ),
+                OutlinedButton(
+                  onPressed: () => _applyFrequency(_frequency * 2),
+                  child: const Text('×2'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              tr(context, 'Presets', '预设'),
+              style: theme.textTheme.labelLarge,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final preset in tonePresetFrequencies)
+                  ChoiceChip(
+                    label: Text(formatToneFrequency(preset)),
+                    selected: (_frequency - preset).abs() < 0.5,
+                    onSelected: (_) => _applyFrequency(preset),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _waveformCard(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr(context, 'Waveform', '波形'),
+              style: theme.textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final waveform in ToneWaveform.values)
+                  ChoiceChip(
+                    avatar: Icon(waveform.icon, size: 18),
+                    label: Text(
+                      tr(context, waveform.englishName, waveform.chineseName),
+                    ),
+                    selected: _waveform == waveform,
+                    onSelected: (_) => _setWaveform(waveform),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _volumeCard(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.volume_up_outlined),
+                const SizedBox(width: 8),
+                Text(
+                  tr(context, 'Volume', '音量'),
+                  style: theme.textTheme.titleMedium,
+                ),
+                const Spacer(),
+                Text('${(_volume * 100).round()}%'),
+              ],
+            ),
+            Slider(
+              value: _volume,
+              divisions: 100,
+              label: '${(_volume * 100).round()}%',
+              onChanged: _setVolume,
+            ),
+            Text(
+              tr(
+                context,
+                'Start at a low volume. High frequencies can be uncomfortable, and prolonged listening at loud levels may damage your hearing.',
+                '请从低音量开始。高频可能刺耳，长时间大音量聆听可能损伤听力。',
+              ),
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(tr(context, 'Frequency Generator', '频率发生器')),
+      actions: [
+        if (_playing)
+          IconButton(
+            tooltip: tr(context, 'Stop', '停止'),
+            onPressed: _stop,
+            icon: const Icon(Icons.stop_circle_outlined),
+          ),
+      ],
+    ),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+          children: [
+            _toneCard(context),
+            const SizedBox(height: 16),
+            _frequencyCard(context),
+            const SizedBox(height: 16),
+            _waveformCard(context),
+            const SizedBox(height: 16),
+            _volumeCard(context),
+          ],
+        ),
       ),
     ),
   );
