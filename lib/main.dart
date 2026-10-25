@@ -464,6 +464,15 @@ const toolInfos = <ToolInfo>[
       ),
     ],
   ),
+  ToolInfo(
+    id: 'speaker-cleaner',
+    icon: Icons.speaker_outlined,
+    englishTitle: 'Speaker Cleaner',
+    chineseTitle: '扬声器排水',
+    englishSubtitle:
+        'Pulse low tones and vibration to shake water out of the speaker.',
+    chineseSubtitle: '用低频脉冲与震动把扬声器里的水震出来。',
+  ),
 ];
 
 ToolInfo? toolInfoById(String id) {
@@ -652,6 +661,7 @@ class HomeScreen extends StatelessWidget {
     'flashlight' => const FlashlightScreen(),
     'vibrator' => const VibratorScreen(),
     'tone-generator' => const ToneGeneratorScreen(),
+    'speaker-cleaner' => const SpeakerCleanerScreen(),
     _ => null,
   };
 
@@ -7663,6 +7673,1203 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
             _playbackTimeCard(context),
             const SizedBox(height: 16),
             _volumeCard(context),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+const double speakerCleanerMinFrequency = 60;
+const double speakerCleanerMaxFrequency = 1000;
+const double speakerCleanerDefaultFrequency = 165;
+const int speakerCleanerMinBurstMs = 100;
+const int speakerCleanerMaxBurstMs = 1500;
+const int speakerCleanerMinPauseMs = 50;
+const int speakerCleanerMaxPauseMs = 1000;
+const List<Duration> speakerCleanerDurations = [
+  Duration(seconds: 10),
+  Duration(seconds: 20),
+  Duration(seconds: 30),
+  Duration(seconds: 45),
+];
+
+double clampSpeakerCleanerFrequency(double hz) {
+  if (!hz.isFinite) return speakerCleanerDefaultFrequency;
+  return hz
+      .clamp(speakerCleanerMinFrequency, speakerCleanerMaxFrequency)
+      .toDouble();
+}
+
+double speakerCleanerSliderToFrequency(double position) {
+  final t = position.clamp(0.0, 1.0);
+  return speakerCleanerMinFrequency *
+      pow(
+        speakerCleanerMaxFrequency / speakerCleanerMinFrequency,
+        t,
+      ).toDouble();
+}
+
+double speakerCleanerFrequencyToSlider(double hz) =>
+    log(clampSpeakerCleanerFrequency(hz) / speakerCleanerMinFrequency) /
+    log(speakerCleanerMaxFrequency / speakerCleanerMinFrequency);
+
+bool speakerCleanerBurstActive(
+  int elapsedMs, {
+  required int burstMs,
+  required int pauseMs,
+}) {
+  final cycle = max(1, burstMs + pauseMs);
+  return (elapsedMs < 0 ? 0 : elapsedMs) % cycle < burstMs;
+}
+
+int speakerCleanerTotalPulses(
+  Duration duration, {
+  required int burstMs,
+  required int pauseMs,
+}) {
+  final cycle = max(1, burstMs + pauseMs);
+  return max(1, (duration.inMilliseconds + cycle - 1) ~/ cycle);
+}
+
+int speakerCleanerPulseIndex(
+  int elapsedMs, {
+  required int burstMs,
+  required int pauseMs,
+}) {
+  final cycle = max(1, burstMs + pauseMs);
+  return (elapsedMs < 0 ? 0 : elapsedMs) ~/ cycle + 1;
+}
+
+String formatSpeakerCleanerDuration(int ms) {
+  if (ms >= 1000) {
+    final seconds = ms / 1000;
+    return seconds == seconds.roundToDouble()
+        ? '${seconds.round()} s'
+        : '${seconds.toStringAsFixed(1)} s';
+  }
+  return '$ms ms';
+}
+
+String speakerCleanerDurationLabel(BuildContext context, Duration duration) =>
+    tr(context, '${duration.inSeconds} s', '${duration.inSeconds} 秒');
+
+class SpeakerCleanerRhythm {
+  const SpeakerCleanerRhythm({
+    required this.id,
+    required this.englishName,
+    required this.chineseName,
+    required this.burstMs,
+    required this.pauseMs,
+  });
+
+  final String id;
+  final String englishName;
+  final String chineseName;
+  final int burstMs;
+  final int pauseMs;
+}
+
+const speakerCleanerRhythms = <SpeakerCleanerRhythm>[
+  SpeakerCleanerRhythm(
+    id: 'gentle',
+    englishName: 'Gentle',
+    chineseName: '轻柔',
+    burstMs: 600,
+    pauseMs: 400,
+  ),
+  SpeakerCleanerRhythm(
+    id: 'standard',
+    englishName: 'Standard',
+    chineseName: '标准',
+    burstMs: 800,
+    pauseMs: 250,
+  ),
+  SpeakerCleanerRhythm(
+    id: 'strong',
+    englishName: 'Strong',
+    chineseName: '强劲',
+    burstMs: 1000,
+    pauseMs: 200,
+  ),
+  SpeakerCleanerRhythm(
+    id: 'rapid',
+    englishName: 'Rapid',
+    chineseName: '快速',
+    burstMs: 350,
+    pauseMs: 150,
+  ),
+];
+
+class _SpeakerCleanerSynth {
+  final SoLoud _soloud = SoLoud.instance;
+  AudioSource? _source;
+  SoundHandle? _handle;
+  double _volume = 0.7;
+  bool _audible = false;
+  int _generation = 0;
+
+  Future<void> start({
+    required double frequency,
+    required double volume,
+  }) async {
+    await stop(fade: false);
+    final generation = ++_generation;
+    if (!_soloud.isInitialized) {
+      await _soloud.init();
+    }
+    if (generation != _generation) return;
+    final source = await _soloud.loadWaveform(WaveForm.sin, false, 1, 0);
+    if (generation != _generation) {
+      await _disposeSource(source);
+      return;
+    }
+    _soloud.setWaveformFreq(source, frequency);
+    final handle = _soloud.play(source, volume: 0, looping: true);
+    _source = source;
+    _handle = handle;
+    _volume = volume;
+    _audible = true;
+    _soloud.fadeVolume(handle, volume, const Duration(milliseconds: 20));
+  }
+
+  void setFrequency(double frequency) {
+    final source = _source;
+    if (source != null) _soloud.setWaveformFreq(source, frequency);
+  }
+
+  void setVolume(double volume) {
+    _volume = volume;
+    final handle = _handle;
+    if (handle != null && _audible) {
+      _soloud.fadeVolume(handle, volume, const Duration(milliseconds: 60));
+    }
+  }
+
+  void setAudible(bool audible) {
+    if (_audible == audible) return;
+    _audible = audible;
+    final handle = _handle;
+    if (handle == null) return;
+    _soloud.fadeVolume(
+      handle,
+      audible ? _volume : 0,
+      const Duration(milliseconds: 10),
+    );
+  }
+
+  Future<void> stop({bool fade = true}) async {
+    _generation++;
+    final handle = _handle;
+    final source = _source;
+    _handle = null;
+    _source = null;
+    _audible = false;
+    if (handle != null) {
+      try {
+        if (fade) {
+          _soloud.fadeVolume(handle, 0, const Duration(milliseconds: 30));
+          _soloud.scheduleStop(handle, const Duration(milliseconds: 50));
+        } else {
+          await _soloud.stop(handle);
+        }
+      } catch (_) {
+        // The engine may already be shutting down.
+      }
+    }
+    if (source != null) {
+      unawaited(_disposeLater(source));
+    }
+  }
+
+  Future<void> _disposeLater(AudioSource source) async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await _disposeSource(source);
+  }
+
+  Future<void> _disposeSource(AudioSource source) async {
+    try {
+      await _soloud.disposeSource(source);
+    } catch (_) {
+      // Ignore teardown errors when the engine is no longer available.
+    }
+  }
+}
+
+class SpeakerCleanerScreen extends StatefulWidget {
+  const SpeakerCleanerScreen({super.key});
+
+  @override
+  State<SpeakerCleanerScreen> createState() => _SpeakerCleanerScreenState();
+}
+
+class _SpeakerCleanerScreenState extends State<SpeakerCleanerScreen> {
+  static const _timeout = Duration(seconds: 2);
+  final _synth = _SpeakerCleanerSynth();
+  final _frequencyController = TextEditingController(
+    text: '${speakerCleanerDefaultFrequency.round()}',
+  );
+  double _frequency = speakerCleanerDefaultFrequency;
+  String? _frequencyError;
+  int _burstMs = 800;
+  int _pauseMs = 250;
+  int _durationSeconds = 20;
+  double _volume = 0.7;
+  bool? _vibrationSupported;
+  bool _hasAmplitude = false;
+  bool _vibrationEnabled = true;
+  bool _vibrationPending = false;
+  bool _playing = false;
+  bool _starting = false;
+  bool _completed = false;
+  bool _burstOn = false;
+  String? _error;
+  Stopwatch? _stopwatch;
+  Timer? _pulseTimer;
+  int _uiTicks = 0;
+  int _session = 0;
+
+  Duration get _duration => Duration(seconds: _durationSeconds);
+
+  Duration get _remaining {
+    final stopwatch = _stopwatch;
+    if (stopwatch == null) return _duration;
+    final remaining = _duration - stopwatch.elapsed;
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  double get _progress {
+    final stopwatch = _stopwatch;
+    if (stopwatch == null) return _completed ? 1 : 0;
+    return (stopwatch.elapsedMilliseconds / _duration.inMilliseconds).clamp(
+      0.0,
+      1.0,
+    );
+  }
+
+  int get _totalPulses => speakerCleanerTotalPulses(
+    _duration,
+    burstMs: _burstMs,
+    pauseMs: _pauseMs,
+  );
+
+  int get _pulseNumber {
+    final stopwatch = _stopwatch;
+    if (stopwatch == null) return 0;
+    return min(
+      _totalPulses,
+      speakerCleanerPulseIndex(
+        stopwatch.elapsedMilliseconds,
+        burstMs: _burstMs,
+        pauseMs: _pauseMs,
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _checkVibrationSupport();
+  }
+
+  @override
+  void dispose() {
+    _session++;
+    _pulseTimer?.cancel();
+    _pulseTimer = null;
+    _stopwatch?.stop();
+    _stopwatch = null;
+    unawaited(_synth.stop(fade: false));
+    unawaited(_VibratorChannel.cancel().catchError((_) {}));
+    unawaited(_PlaybackChannel.stop());
+    _frequencyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkVibrationSupport() async {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      // Desktop platforms do not register the vibrator channel.
+      if (!mounted) return;
+      setState(() {
+        _vibrationSupported = false;
+        _vibrationEnabled = false;
+      });
+      return;
+    }
+    var supported = false;
+    var amplitude = false;
+    try {
+      supported = await _VibratorChannel.isAvailable().timeout(_timeout);
+      if (supported) {
+        amplitude = await _VibratorChannel.hasAmplitudeControl().timeout(
+          _timeout,
+        );
+      }
+    } catch (_) {
+      supported = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _vibrationSupported = supported;
+      _hasAmplitude = amplitude;
+      if (!supported) _vibrationEnabled = false;
+    });
+    if (supported && _playing && _vibrationEnabled) {
+      if (_burstOn) {
+        unawaited(_startVibration());
+      } else {
+        _vibrationPending = true;
+      }
+    }
+  }
+
+  Future<void> _start() async {
+    if (_starting || _playing) return;
+    final session = ++_session;
+    setState(() {
+      _starting = true;
+      _error = null;
+      _completed = false;
+    });
+    try {
+      await _synth.start(frequency: _frequency, volume: _volume);
+      if (!mounted) return;
+      if (session != _session) {
+        await _synth.stop(fade: false);
+        return;
+      }
+      _synth.setFrequency(_frequency);
+      _stopwatch = Stopwatch()..start();
+      _uiTicks = 0;
+      _burstOn = true;
+      _pulseTimer = Timer.periodic(const Duration(milliseconds: 20), _tick);
+      setState(() => _playing = true);
+      if (_vibrationEnabled && _vibrationSupported == true) {
+        unawaited(_startVibration());
+      }
+      unawaited(
+        _PlaybackChannel.start(
+          title: tr(context, 'Speaker cleaner', '扬声器排水'),
+          text: tr(
+            context,
+            'Pulsing at ${formatToneFrequency(_frequency)}',
+            '以 ${formatToneFrequency(_frequency)} 脉冲排水',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted || session != _session) return;
+      setState(() {
+        _error = tr(
+          context,
+          'Could not start the audio engine: $error',
+          '无法启动音频引擎：$error',
+        );
+      });
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  void _tick(Timer timer) {
+    final stopwatch = _stopwatch;
+    if (stopwatch == null) return;
+    final elapsed = stopwatch.elapsedMilliseconds;
+    if (elapsed >= _duration.inMilliseconds) {
+      _finish();
+      return;
+    }
+    final on = speakerCleanerBurstActive(
+      elapsed,
+      burstMs: _burstMs,
+      pauseMs: _pauseMs,
+    );
+    final changed = on != _burstOn;
+    if (changed) {
+      _burstOn = on;
+      _synth.setAudible(on);
+      if (on && _vibrationPending) {
+        _vibrationPending = false;
+        unawaited(_startVibration());
+      }
+    }
+    _uiTicks++;
+    if (changed || _uiTicks % 5 == 0) {
+      if (mounted) setState(() {});
+    }
+  }
+
+  void _finish() {
+    _pulseTimer?.cancel();
+    _pulseTimer = null;
+    _stopwatch?.stop();
+    _stopwatch = null;
+    _synth.setAudible(false);
+    unawaited(_synth.stop());
+    _cancelVibration();
+    unawaited(_PlaybackChannel.stop());
+    if (!mounted) return;
+    setState(() {
+      _playing = false;
+      _burstOn = false;
+      _completed = true;
+    });
+  }
+
+  void _stop() {
+    _session++;
+    _pulseTimer?.cancel();
+    _pulseTimer = null;
+    _stopwatch?.stop();
+    _stopwatch = null;
+    _synth.setAudible(false);
+    unawaited(_synth.stop(fade: false));
+    _cancelVibration();
+    unawaited(_PlaybackChannel.stop());
+    if (!mounted) return;
+    setState(() {
+      _playing = false;
+      _burstOn = false;
+      _completed = false;
+    });
+  }
+
+  void _cancelVibration() {
+    _vibrationPending = false;
+    unawaited(_VibratorChannel.cancel().catchError((_) {}));
+  }
+
+  Future<void> _startVibration() async {
+    try {
+      await _VibratorChannel.vibrate(
+        pattern: [_burstMs, _pauseMs],
+        repeat: 0,
+        amplitude: _hasAmplitude ? 200 : -1,
+        sharpness: 0.6,
+      );
+    } catch (_) {
+      // Vibration is optional; audio pulses keep working without it.
+    }
+  }
+
+  void _setVibration(bool value) {
+    if (_vibrationSupported != true) return;
+    setState(() => _vibrationEnabled = value);
+    if (!_playing) {
+      _vibrationPending = false;
+      return;
+    }
+    if (!value) {
+      _cancelVibration();
+      return;
+    }
+    if (_burstOn) {
+      unawaited(_startVibration());
+    } else {
+      _vibrationPending = true;
+    }
+  }
+
+  void _applyFrequency(double value, {bool syncField = true}) {
+    final frequency = clampSpeakerCleanerFrequency(value);
+    setState(() {
+      _frequency = frequency;
+      _frequencyError = null;
+      if (syncField) _frequencyController.text = formatToneNumber(frequency);
+    });
+    _synth.setFrequency(frequency);
+  }
+
+  void _onFrequencyInput(String value) {
+    final parsed = double.tryParse(value.trim());
+    if (parsed == null ||
+        !parsed.isFinite ||
+        parsed < speakerCleanerMinFrequency ||
+        parsed > speakerCleanerMaxFrequency) {
+      setState(() {
+        _frequencyError = tr(
+          context,
+          'Enter a frequency between 60 and 1,000 Hz.',
+          '请输入 60 到 1,000 Hz 之间的频率。',
+        );
+      });
+      return;
+    }
+    setState(() {
+      _frequency = clampSpeakerCleanerFrequency(parsed);
+      _frequencyError = null;
+    });
+    _synth.setFrequency(_frequency);
+  }
+
+  void _setRhythm(SpeakerCleanerRhythm rhythm) {
+    setState(() {
+      _burstMs = rhythm.burstMs;
+      _pauseMs = rhythm.pauseMs;
+    });
+  }
+
+  void _setBurst(int value) {
+    setState(() => _burstMs = value);
+  }
+
+  void _setPause(int value) {
+    setState(() => _pauseMs = value);
+  }
+
+  void _setVolume(double value) {
+    setState(() => _volume = value);
+    _synth.setVolume(value);
+  }
+
+  Widget _statusCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final status = _error != null
+        ? _error!
+        : _starting
+        ? tr(context, 'Starting the audio engine…', '正在启动音频引擎…')
+        : _playing
+        ? tr(
+            context,
+            'Pulse $_pulseNumber of $_totalPulses · '
+                '${formatCountdown(_remaining)} left',
+            '第 $_pulseNumber / $_totalPulses 次脉冲 · '
+                '剩余 ${formatCountdown(_remaining)}',
+          )
+        : _completed
+        ? tr(
+            context,
+            'Cycle complete. Repeat if water remains.',
+            '本轮完成。若仍有水，可再运行一次。',
+          )
+        : tr(context, 'Ready when you are.', '准备就绪。');
+    return Card(
+      color: _completed ? scheme.secondaryContainer : null,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                AnimatedScale(
+                  scale: _playing && _burstOn ? 1.15 : 1,
+                  duration: const Duration(milliseconds: 90),
+                  child: Icon(
+                    Icons.speaker_outlined,
+                    size: 32,
+                    color: scheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tr(context, 'Cleaning pulse', '排水脉冲'),
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      Text(
+                        tr(
+                          context,
+                          'Low-frequency pulses push water out of the speaker grille.',
+                          '低频脉冲把水从扬声器开孔震出来。',
+                        ),
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: (_starting || _playing) ? _stop : _start,
+                icon: _starting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        _playing
+                            ? Icons.stop_rounded
+                            : Icons.play_arrow_rounded,
+                      ),
+                label: Text(
+                  (_starting || _playing)
+                      ? tr(context, 'Stop', '停止')
+                      : tr(context, 'Start cleaning', '开始排水'),
+                ),
+              ),
+            ),
+            if (_playing || _completed) ...[
+              const SizedBox(height: 12),
+              LinearProgressIndicator(
+                value: _progress,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              status,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: _error != null ? scheme.error : null,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _rhythmCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.pattern, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  tr(context, 'Pulse rhythm', '脉冲节奏'),
+                  style: theme.textTheme.titleMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              tr(
+                context,
+                'Each pulse alternates a tone burst with silence.',
+                '每次脉冲由一段发声和一段静音组成。',
+              ),
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final rhythm in speakerCleanerRhythms)
+                  ChoiceChip(
+                    key: ValueKey('speaker-cleaner-rhythm-${rhythm.id}'),
+                    label: Text(
+                      tr(context, rhythm.englishName, rhythm.chineseName),
+                    ),
+                    selected:
+                        _burstMs == rhythm.burstMs &&
+                        _pauseMs == rhythm.pauseMs,
+                    onSelected: _playing ? null : (_) => _setRhythm(rhythm),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  flex: _burstMs,
+                  child: Container(
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      borderRadius: const BorderRadius.horizontal(
+                        left: Radius.circular(5),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 3),
+                Expanded(
+                  flex: _pauseMs,
+                  child: Container(
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerHighest,
+                      borderRadius: const BorderRadius.horizontal(
+                        right: Radius.circular(5),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              tr(
+                context,
+                '${formatSpeakerCleanerDuration(_burstMs)} tone · '
+                    '${formatSpeakerCleanerDuration(_pauseMs)} pause',
+                '${formatSpeakerCleanerDuration(_burstMs)} 发声 · '
+                    '${formatSpeakerCleanerDuration(_pauseMs)} 静音',
+              ),
+              key: const ValueKey('speaker-cleaner-rhythm-summary'),
+              style: theme.textTheme.bodySmall,
+            ),
+            if (_playing) ...[
+              const SizedBox(height: 4),
+              Text(
+                tr(
+                  context,
+                  'Rhythm is locked while the pulses run. Stop to change it.',
+                  '脉冲运行期间节奏已锁定，停止后可调整。',
+                ),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            _msSlider(
+              context,
+              key: const ValueKey('speaker-cleaner-burst-slider'),
+              englishLabel: 'Burst',
+              chineseLabel: '发声',
+              value: _burstMs,
+              min: speakerCleanerMinBurstMs,
+              max: speakerCleanerMaxBurstMs,
+              onChanged: _playing ? null : _setBurst,
+            ),
+            _msSlider(
+              context,
+              key: const ValueKey('speaker-cleaner-pause-slider'),
+              englishLabel: 'Pause',
+              chineseLabel: '静音',
+              value: _pauseMs,
+              min: speakerCleanerMinPauseMs,
+              max: speakerCleanerMaxPauseMs,
+              onChanged: _playing ? null : _setPause,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _msSlider(
+    BuildContext context, {
+    required Key key,
+    required String englishLabel,
+    required String chineseLabel,
+    required int value,
+    required int min,
+    required int max,
+    required ValueChanged<int>? onChanged,
+  }) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        SizedBox(
+          width: 56,
+          child: Text(
+            tr(context, englishLabel, chineseLabel),
+            style: theme.textTheme.bodySmall,
+          ),
+        ),
+        Expanded(
+          child: Slider(
+            key: key,
+            value: value.toDouble(),
+            min: min.toDouble(),
+            max: max.toDouble(),
+            divisions: (max - min) ~/ 50,
+            label: formatSpeakerCleanerDuration(value),
+            onChanged: onChanged == null
+                ? null
+                : (position) => onChanged(position.round()),
+          ),
+        ),
+        SizedBox(
+          width: 64,
+          child: Text(
+            formatSpeakerCleanerDuration(value),
+            textAlign: TextAlign.end,
+            style: theme.textTheme.bodySmall,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _frequencyCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.waves, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  tr(context, 'Tone frequency', '音调频率'),
+                  style: theme.textTheme.titleMedium,
+                ),
+                const Spacer(),
+                Text(
+                  formatToneFrequency(_frequency),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: scheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              tr(
+                context,
+                'Lower frequencies move the speaker cone further. '
+                    '165 Hz is a useful starting point.',
+                '频率越低，扬声器振膜位移越大。165 Hz 是常用的起点。',
+              ),
+              style: theme.textTheme.bodySmall,
+            ),
+            Slider(
+              key: const ValueKey('speaker-cleaner-frequency-slider'),
+              value: speakerCleanerFrequencyToSlider(_frequency),
+              label: formatToneFrequency(_frequency),
+              onChanged: (position) =>
+                  _applyFrequency(speakerCleanerSliderToFrequency(position)),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final hz in const [
+                  100.0,
+                  165.0,
+                  200.0,
+                  300.0,
+                  500.0,
+                  800.0,
+                ])
+                  ChoiceChip(
+                    key: ValueKey('speaker-cleaner-frequency-${hz.round()}'),
+                    label: Text(formatToneFrequency(hz)),
+                    selected: (_frequency - hz).abs() < 0.5,
+                    onSelected: (_) => _applyFrequency(hz),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('speaker-cleaner-frequency-field'),
+              controller: _frequencyController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              onChanged: _onFrequencyInput,
+              decoration: InputDecoration(
+                labelText: tr(context, 'Exact frequency', '精确频率'),
+                suffixText: 'Hz',
+                isDense: true,
+                border: const OutlineInputBorder(),
+                errorText: _frequencyError,
+                errorMaxLines: 2,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              tr(
+                context,
+                'You can retune the frequency while the pulses run.',
+                '运行期间仍可实时调整频率。',
+              ),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _durationCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.timer_outlined, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  tr(context, 'Cleaning time', '排水时长'),
+                  style: theme.textTheme.titleMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final duration in speakerCleanerDurations)
+                  ChoiceChip(
+                    key: ValueKey(
+                      'speaker-cleaner-duration-${duration.inSeconds}',
+                    ),
+                    label: Text(speakerCleanerDurationLabel(context, duration)),
+                    selected: _durationSeconds == duration.inSeconds,
+                    onSelected: _playing
+                        ? null
+                        : (_) => setState(
+                            () => _durationSeconds = duration.inSeconds,
+                          ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              tr(
+                context,
+                'Stops automatically when the cycle ends. '
+                    'Keep the speaker facing downward.',
+                '一轮结束后会自动停止。请保持扬声器朝下。',
+              ),
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _vibrationCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final support = _vibrationSupported;
+    return Card(
+      child: SwitchListTile(
+        key: const ValueKey('speaker-cleaner-vibration'),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        secondary: Icon(
+          Icons.vibration,
+          color: support == true ? scheme.primary : scheme.onSurfaceVariant,
+        ),
+        title: Text(tr(context, 'Sync vibration', '同步震动')),
+        subtitle: Text(
+          support == null
+              ? tr(context, 'Checking the vibration motor…', '正在检测震动马达…')
+              : support
+              ? tr(
+                  context,
+                  'Pulse the vibration motor with each tone burst.',
+                  '每次音频脉冲时同步震动。',
+                )
+              : tr(
+                  context,
+                  'No vibration motor on this device; audio pulses still work.',
+                  '本机没有震动马达，仍可播放音频脉冲。',
+                ),
+        ),
+        value: support == true && _vibrationEnabled,
+        onChanged: support == true ? _setVibration : null,
+      ),
+    );
+  }
+
+  Widget _volumeCard(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.volume_up_outlined),
+                const SizedBox(width: 8),
+                Text(
+                  tr(context, 'Volume', '音量'),
+                  style: theme.textTheme.titleMedium,
+                ),
+                const Spacer(),
+                Text('${(_volume * 100).round()}%'),
+              ],
+            ),
+            Slider(
+              value: _volume,
+              divisions: 100,
+              label: '${(_volume * 100).round()}%',
+              onChanged: _setVolume,
+            ),
+            Text(
+              tr(
+                context,
+                'Start around 60–70%. Very loud low frequencies can '
+                    'distort or damage the speaker; stop if you hear buzzing.',
+                '建议从 60–70% 开始。过大的低频音量可能让扬声器破音或受损；'
+                    '如出现破音请立即停止。',
+              ),
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _instructionsCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.lightbulb_outline, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  tr(context, 'How to use it', '使用方法'),
+                  style: theme.textTheme.titleMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _step(
+              context,
+              1,
+              'Remove the case, then face the speaker downward over a dry cloth.',
+              '取下保护壳，把扬声器朝下，放在干布上。',
+            ),
+            const SizedBox(height: 8),
+            _step(
+              context,
+              2,
+              'Set a volume that makes the speaker rattle without distorting.',
+              '把音量调到能感到明显震动、但不破音的水平。',
+            ),
+            const SizedBox(height: 8),
+            _step(
+              context,
+              3,
+              'Run one cycle. If water remains, repeat once or twice and let it air-dry.',
+              '运行一轮；若仍有水，可再运行一到两次，然后自然风干。',
+            ),
+            const Divider(height: 24),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 18,
+                  color: scheme.error,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    tr(
+                      context,
+                      'Do not insert anything into the speaker grille. '
+                          'Do not use this tool if the speaker is damaged, '
+                          'the device is not water-resistant, or it has been '
+                          'submerged; power it off and seek repair instead.',
+                      '不要用物体插入扬声器开孔。若扬声器已损坏、设备不具备防水能力，'
+                          '或曾严重进水，请勿使用本工具；应尽快断电并送修。',
+                    ),
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _step(
+    BuildContext context,
+    int number,
+    String english,
+    String chinese,
+  ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 22,
+          height: 22,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: scheme.secondaryContainer,
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            '$number',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.onSecondaryContainer,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            tr(context, english, chinese),
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(tr(context, 'Speaker Cleaner', '扬声器排水')),
+      actions: [
+        if (_playing)
+          IconButton(
+            tooltip: tr(context, 'Stop', '停止'),
+            onPressed: _stop,
+            icon: const Icon(Icons.stop_circle_outlined),
+          ),
+      ],
+    ),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+          children: [
+            _statusCard(context),
+            const SizedBox(height: 16),
+            _rhythmCard(context),
+            const SizedBox(height: 16),
+            _frequencyCard(context),
+            const SizedBox(height: 16),
+            _durationCard(context),
+            const SizedBox(height: 16),
+            _vibrationCard(context),
+            const SizedBox(height: 16),
+            _volumeCard(context),
+            const SizedBox(height: 16),
+            _instructionsCard(context),
           ],
         ),
       ),
