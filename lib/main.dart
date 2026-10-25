@@ -5868,6 +5868,12 @@ extension ToneWaveformDetails on ToneWaveform {
 
 const double toneMinFrequency = 20;
 const double toneMaxFrequency = 20000;
+const double motionSicknessToneFrequency = 100;
+const String motionSicknessStudyUrl =
+    'https://www.jstage.jst.go.jp/article/ehpm/30/0/30_24-00247/_article';
+const String motionSicknessStudyTitle =
+    'Just 1-min exposure to a pure tone at 100 Hz with daily exposable '
+    'sound pressure levels may improve motion sickness';
 const List<double> tonePresetFrequencies = [
   20,
   100,
@@ -6009,6 +6015,78 @@ class _ToneSynth {
   }
 }
 
+class _TonePresetChip extends StatelessWidget {
+  const _TonePresetChip({
+    required this.frequency,
+    required this.selected,
+    required this.onSelected,
+    this.onInfo,
+  });
+
+  final double frequency;
+  final bool selected;
+  final VoidCallback onSelected;
+  final VoidCallback? onInfo;
+
+  @override
+  Widget build(BuildContext context) {
+    final onInfo = this.onInfo;
+    final scheme = Theme.of(context).colorScheme;
+    final chip = ChoiceChip(
+      label: Text(formatToneFrequency(frequency)),
+      selected: selected,
+      onSelected: (_) => onSelected(),
+      backgroundColor: onInfo == null ? null : Colors.transparent,
+      selectedColor: onInfo == null ? null : Colors.transparent,
+      surfaceTintColor: onInfo == null ? null : Colors.transparent,
+      side: onInfo == null ? null : BorderSide.none,
+      shape: onInfo == null ? null : const StadiumBorder(),
+      elevation: 0,
+      pressElevation: 0,
+    );
+    if (onInfo == null) return chip;
+    return Material(
+      color: selected ? scheme.secondaryContainer : scheme.surface,
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: selected ? Colors.transparent : scheme.outlineVariant,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          chip,
+          Container(
+            width: 1,
+            height: 16,
+            color: selected
+                ? scheme.onSecondaryContainer.withValues(alpha: 0.2)
+                : scheme.outlineVariant,
+          ),
+          Tooltip(
+            message: tr(context, 'Why 100 Hz?', '为什么是 100 Hz？'),
+            child: InkWell(
+              key: const ValueKey('tone-preset-info-100'),
+              onTap: onInfo,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(7, 6, 9, 6),
+                child: Icon(
+                  Icons.medical_information_outlined,
+                  size: 17,
+                  color: selected
+                      ? scheme.onSecondaryContainer
+                      : scheme.tertiary,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class ToneGeneratorScreen extends StatefulWidget {
   const ToneGeneratorScreen({super.key});
 
@@ -6132,6 +6210,76 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen>
   void _setWaveform(ToneWaveform waveform) {
     setState(() => _waveform = waveform);
     _synth.setWaveform(waveform);
+  }
+
+  void _showHundredHertzInfo(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: Text(tr(context, '100 Hz and motion sickness', '100 Hz 与晕车')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tr(
+                    context,
+                    'A 2025 study reported that listening to a pure 100 Hz tone for about one minute before motion may reduce signs of motion sickness. The human experiments used 80–85 dBZ (about 61–66 dBA), and the finding is still preliminary.',
+                    '一项 2025 年的研究报告称，在晃动或乘车前聆听约 1 分钟 100 Hz 纯音，可能减轻晕车表现。人体实验使用的声压级为 80–85 dBZ（约 61–66 dBA），该结论仍属初步研究。',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  tr(context, 'Reference', '参考文献'),
+                  style: theme.textTheme.labelLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  motionSicknessStudyTitle,
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Gu Y, Ohgami N, He T, et al. Environmental Health and '
+                  'Preventive Medicine. 2025;30:22. '
+                  'DOI: 10.1265/ehpm.24-00247',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                _ToolLink(url: motionSicknessStudyUrl),
+                const Divider(height: 24),
+                Text(
+                  tr(
+                    context,
+                    'The app cannot measure sound pressure level, so the volume slider is not calibrated to the study. Keep the volume comfortable, and do not use this while driving or operating machinery. This is not medical advice.',
+                    '应用无法测量声压级，音量滑块与实验条件并不等同。请保持舒适音量，切勿在驾驶或操作机械时使用；本提示不构成医疗建议。',
+                  ),
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(tr(context, 'Close', '关闭')),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _setWaveform(ToneWaveform.sine);
+                _applyFrequency(motionSicknessToneFrequency);
+              },
+              icon: const Icon(Icons.check_rounded),
+              label: Text(tr(context, 'Use 100 Hz', '使用 100 Hz')),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _toneCard(BuildContext context) {
@@ -6319,10 +6467,13 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen>
               runSpacing: 8,
               children: [
                 for (final preset in tonePresetFrequencies)
-                  ChoiceChip(
-                    label: Text(formatToneFrequency(preset)),
+                  _TonePresetChip(
+                    frequency: preset,
                     selected: (_frequency - preset).abs() < 0.5,
-                    onSelected: (_) => _applyFrequency(preset),
+                    onSelected: () => _applyFrequency(preset),
+                    onInfo: preset == motionSicknessToneFrequency
+                        ? () => _showHundredHertzInfo(context)
+                        : null,
                   ),
               ],
             ),

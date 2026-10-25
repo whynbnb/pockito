@@ -119,4 +119,45 @@ void main() {
     await tester.pump();
     expect(find.text('A4 0 ct'), findsOneWidget);
   });
+
+  testWidgets('explains the 100 Hz motion sickness note', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.tap(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('tone-preset-info-100')), findsOneWidget);
+    expect(find.text('A4 0 ct'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('tone-preset-info-100')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('100 Hz and motion sickness'), findsOneWidget);
+    expect(find.textContaining('80–85 dBZ'), findsOneWidget);
+    expect(find.text(motionSicknessStudyTitle), findsOneWidget);
+    expect(find.text(motionSicknessStudyUrl), findsOneWidget);
+
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    // Opening the note must not change the current tone.
+    expect(find.text('A4 0 ct'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('tone-preset-info-100')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Use 100 Hz'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('100 Hz'), findsWidgets);
+    expect(find.textContaining('G2'), findsOneWidget);
+    final sineChip = tester.widget<ChoiceChip>(
+      find.ancestor(of: find.text('Sine'), matching: find.byType(ChoiceChip)),
+    );
+    expect(sineChip.selected, isTrue);
+  });
 }
