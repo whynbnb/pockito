@@ -443,8 +443,8 @@ const toolInfos = <ToolInfo>[
     englishTitle: 'Frequency Generator',
     chineseTitle: '频率发生器',
     englishSubtitle:
-        'Play pure tones with custom frequencies, channels and layers.',
-    chineseSubtitle: '播放自定义频率、声道与叠加层的纯音。',
+        'Play pure tones with custom frequencies, channels, layers and sweeps.',
+    chineseSubtitle: '播放自定义频率、声道、叠加层与扫频的纯音。',
   ),
 ];
 
@@ -5997,11 +5997,46 @@ class ToneLayer {
     required this.id,
     required this.frequency,
     this.channel = ToneChannel.both,
-  });
+  }) : sweepFrom = frequency,
+       sweepTo = defaultSweepTarget(frequency);
 
   final String id;
   double frequency;
   ToneChannel channel;
+  bool sweepEnabled = false;
+  bool sweepInitialized = false;
+  double sweepFrom;
+  double sweepTo;
+  Duration sweepDuration = const Duration(seconds: 10);
+  bool sweepRepeat = false;
+  bool sweepLogarithmic = true;
+}
+
+double defaultSweepTarget(double frequency) {
+  final doubled = frequency * 2;
+  return clampToneFrequency(
+    doubled <= toneMaxFrequency ? doubled : frequency / 2,
+  );
+}
+
+double toneSweepFrequency({
+  required double from,
+  required double to,
+  required double progress,
+  required bool logarithmic,
+}) {
+  final t = progress.clamp(0.0, 1.0);
+  if (logarithmic && from > 0 && to > 0) {
+    return (from * pow(to / from, t)).toDouble();
+  }
+  return from + (to - from) * t;
+}
+
+double toneSweepProgress(int elapsedMs, int durationMs, bool repeat) {
+  if (durationMs <= 0) return 1;
+  if (!repeat) return (elapsedMs / durationMs).clamp(0.0, 1.0);
+  final phase = (elapsedMs % (2 * durationMs)) / durationMs;
+  return phase <= 1 ? phase : 2 - phase;
 }
 
 /// Splits the available headroom between simultaneous layers so that a stack
@@ -6316,6 +6351,9 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
   static const _maxLayers = 4;
   final _synth = _ToneSynth();
   final _frequencyController = TextEditingController(text: '440');
+  final _sweepFromController = TextEditingController();
+  final _sweepEndController = TextEditingController();
+  final _sweepDurationController = TextEditingController();
   final List<ToneLayer> _layers = [
     ToneLayer(id: 'tone-1', frequency: _defaultFrequency),
   ];
@@ -6326,11 +6364,24 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
   Duration? _limit;
   DateTime? _endsAt;
   Timer? _limitTimer;
+  Timer? _sweepTimer;
+  final Map<String, double> _liveFrequencies = {};
+  final Map<String, DateTime> _sweepStarts = {};
+  int _sweepTicks = 0;
   bool _playing = false;
   bool _starting = false;
   String? _error;
   String? _inputError;
+  String? _sweepFromError;
+  String? _sweepEndError;
+  String? _sweepDurationError;
   int _session = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncSweepControllers();
+  }
 
   ToneLayer get _activeLayer => _layers.firstWhere(
     (layer) => layer.id == _activeLayerId,
@@ -6344,6 +6395,9 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
 
   double get _frequency => _activeLayer.frequency;
 
+  double get _displayFrequency =>
+      _liveFrequencies[_activeLayer.id] ?? _activeLayer.frequency;
+
   Duration? get _remaining {
     final endsAt = _endsAt;
     if (endsAt == null) return null;
@@ -6354,9 +6408,13 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
   @override
   void dispose() {
     _limitTimer?.cancel();
+    _sweepTimer?.cancel();
     _session++;
     unawaited(_synth.dispose());
     unawaited(_PlaybackChannel.stop());
+    _sweepFromController.dispose();
+    _sweepEndController.dispose();
+    _sweepDurationController.dispose();
     _frequencyController.dispose();
     super.dispose();
   }
@@ -6379,20 +6437,11 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
       }
       _beginCountdown();
       setState(() => _playing = true);
+      _prepareSweeps();
       unawaited(
         _PlaybackChannel.start(
           title: tr(context, 'Frequency generator', '频率发生器'),
-          text: _layers.length == 1
-              ? tr(
-                  context,
-                  'Playing ${formatToneFrequency(_frequency)}',
-                  '正在播放 ${formatToneFrequency(_frequency)}',
-                )
-              : tr(
-                  context,
-                  'Playing ${_layers.length} tones',
-                  '正在播放 ${_layers.length} 个音调',
-                ),
+          text: _notificationText(context),
         ),
       );
     } catch (error) {
@@ -6409,11 +6458,35 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
     }
   }
 
+  String _notificationText(BuildContext context) {
+    final layer = _activeLayer;
+    if (_layers.length == 1 && layer.sweepEnabled) {
+      return tr(
+        context,
+        'Sweeping ${formatToneFrequency(layer.sweepFrom)} to ${formatToneFrequency(layer.sweepTo)}',
+        '正在扫频 ${formatToneFrequency(layer.sweepFrom)} 到 ${formatToneFrequency(layer.sweepTo)}',
+      );
+    }
+    if (_layers.length == 1) {
+      return tr(
+        context,
+        'Playing ${formatToneFrequency(layer.frequency)}',
+        '正在播放 ${formatToneFrequency(layer.frequency)}',
+      );
+    }
+    return tr(
+      context,
+      'Playing ${_layers.length} tones',
+      '正在播放 ${_layers.length} 个音调',
+    );
+  }
+
   void _stop() {
     _session++;
     _limitTimer?.cancel();
     _limitTimer = null;
     _endsAt = null;
+    _stopSweeps();
     unawaited(_PlaybackChannel.stop());
     _synth.stop();
     if (!mounted) return;
@@ -6459,8 +6532,15 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
       _activeLayer.frequency = frequency;
       _inputError = null;
       if (syncField) _frequencyController.text = formatToneNumber(frequency);
+      _liveFrequencies[_activeLayer.id] = frequency;
+      if (_activeLayer.sweepEnabled) {
+        _activeLayer.sweepFrom = frequency;
+        _activeLayer.sweepInitialized = true;
+        if (_playing) _sweepStarts[_activeLayer.id] = DateTime.now();
+      }
     });
     _synth.setFrequency(_activeLayer.id, frequency);
+    if (_playing && _activeLayer.sweepEnabled) _ensureSweepTimer();
   }
 
   void _onFrequencyInput(String value) {
@@ -6497,6 +6577,7 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
       _activeLayerId = layer.id;
       _frequencyController.text = formatToneNumber(layer.frequency);
       _inputError = null;
+      _syncSweepControllers();
     });
   }
 
@@ -6513,6 +6594,8 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
       _activeLayerId = layer.id;
       _frequencyController.text = formatToneNumber(frequency);
       _inputError = null;
+      _liveFrequencies[layer.id] = frequency;
+      _syncSweepControllers();
     });
     if (_playing) unawaited(_synth.addLayer(layer, _layers));
   }
@@ -6522,19 +6605,266 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
     final wasActive = layer.id == _activeLayerId;
     setState(() {
       _layers.removeWhere((item) => item.id == layer.id);
+      _liveFrequencies.remove(layer.id);
+      _sweepStarts.remove(layer.id);
       if (wasActive) {
         _activeLayerId = _layers.first.id;
         _frequencyController.text = formatToneNumber(_layers.first.frequency);
         _inputError = null;
+        _syncSweepControllers();
       }
     });
     if (_playing) _synth.removeLayer(layer.id, _layers);
+    _cancelSweepTimerIfIdle();
   }
 
   void _setLayerChannel(ToneLayer layer, ToneChannel channel) {
     if (layer.channel == channel) return;
     setState(() => layer.channel = channel);
     if (_playing) _synth.setChannel(layer.id, channel, _layers);
+  }
+
+  void _syncSweepControllers() {
+    final layer = _activeLayer;
+    _sweepFromController.text = formatToneNumber(layer.sweepFrom);
+    _sweepEndController.text = formatToneNumber(layer.sweepTo);
+    _sweepDurationController.text = '${layer.sweepDuration.inSeconds}';
+    _sweepFromError = null;
+    _sweepEndError = null;
+    _sweepDurationError = null;
+  }
+
+  void _onSweepFromInput(String value) {
+    final parsed = double.tryParse(value.trim());
+    if (parsed == null ||
+        !parsed.isFinite ||
+        parsed < toneMinFrequency ||
+        parsed > toneMaxFrequency) {
+      setState(() {
+        _sweepFromError = tr(
+          context,
+          'Enter a start frequency between 20 and 20,000 Hz.',
+          '请输入 20 到 20,000 Hz 之间的起始频率。',
+        );
+      });
+      return;
+    }
+    final layer = _activeLayer;
+    setState(() {
+      layer.sweepFrom = parsed;
+      layer.sweepInitialized = true;
+      layer.frequency = parsed;
+      _liveFrequencies[layer.id] = parsed;
+      _frequencyController.text = formatToneNumber(parsed);
+      _sweepFromError = null;
+    });
+    _restartSweep(layer);
+  }
+
+  void _onSweepEndInput(String value) {
+    final parsed = double.tryParse(value.trim());
+    if (parsed == null ||
+        !parsed.isFinite ||
+        parsed < toneMinFrequency ||
+        parsed > toneMaxFrequency) {
+      setState(() {
+        _sweepEndError = tr(
+          context,
+          'Enter an end frequency between 20 and 20,000 Hz.',
+          '请输入 20 到 20,000 Hz 之间的结束频率。',
+        );
+      });
+      return;
+    }
+    final layer = _activeLayer;
+    setState(() {
+      layer.sweepTo = parsed;
+      layer.sweepInitialized = true;
+      _sweepEndError = null;
+    });
+    _restartSweep(layer);
+  }
+
+  void _setSweepEnd(double value) {
+    final frequency = clampToneFrequency(value);
+    final layer = _activeLayer;
+    setState(() {
+      layer.sweepTo = frequency;
+      layer.sweepInitialized = true;
+      _sweepEndController.text = formatToneNumber(frequency);
+      _sweepEndError = null;
+    });
+    _restartSweep(layer);
+  }
+
+  void _onSweepDurationInput(String value) {
+    final seconds = int.tryParse(value.trim());
+    if (seconds == null || seconds < 1 || seconds > 3600) {
+      setState(() {
+        _sweepDurationError = tr(
+          context,
+          'Enter a duration between 1 and 3600 seconds.',
+          '请输入 1 到 3600 秒之间的持续时间。',
+        );
+      });
+      return;
+    }
+    _setSweepSeconds(seconds, syncField: false);
+  }
+
+  void _setSweepSeconds(int seconds, {bool syncField = true}) {
+    final layer = _activeLayer;
+    setState(() {
+      layer.sweepDuration = Duration(seconds: seconds);
+      _sweepDurationError = null;
+      if (syncField) _sweepDurationController.text = '$seconds';
+    });
+    _restartSweep(layer);
+  }
+
+  void _setSweepEnabled(bool enabled) {
+    final layer = _activeLayer;
+    if (layer.sweepEnabled == enabled) return;
+    setState(() {
+      if (enabled && !layer.sweepInitialized) {
+        layer.sweepFrom = layer.frequency;
+        layer.sweepTo = defaultSweepTarget(layer.frequency);
+        layer.sweepInitialized = true;
+      }
+      layer.sweepEnabled = enabled;
+      if (enabled) {
+        layer.frequency = layer.sweepFrom;
+        _liveFrequencies[layer.id] = layer.sweepFrom;
+        _frequencyController.text = formatToneNumber(layer.sweepFrom);
+        if (_playing) _sweepStarts[layer.id] = DateTime.now();
+      } else {
+        final current = _liveFrequencies[layer.id] ?? layer.sweepFrom;
+        layer.frequency = current;
+        _liveFrequencies.remove(layer.id);
+        _sweepStarts.remove(layer.id);
+        _frequencyController.text = formatToneNumber(current);
+        _inputError = null;
+      }
+      _syncSweepControllers();
+    });
+    if (_playing) {
+      _synth.setFrequency(layer.id, layer.frequency);
+      if (enabled) {
+        _ensureSweepTimer();
+      } else {
+        _cancelSweepTimerIfIdle();
+      }
+    }
+  }
+
+  void _setSweepRepeat(bool repeat) {
+    final layer = _activeLayer;
+    setState(() => layer.sweepRepeat = repeat);
+    _restartSweep(layer);
+  }
+
+  void _setSweepLogarithmic(bool logarithmic) {
+    final layer = _activeLayer;
+    setState(() => layer.sweepLogarithmic = logarithmic);
+    _restartSweep(layer);
+  }
+
+  void _restartSweep(ToneLayer layer) {
+    if (!_playing || !layer.sweepEnabled) return;
+    _sweepStarts[layer.id] = DateTime.now();
+    _liveFrequencies[layer.id] = layer.sweepFrom;
+    _synth.setFrequency(layer.id, layer.sweepFrom);
+    _ensureSweepTimer();
+    if (mounted) setState(() {});
+  }
+
+  void _prepareSweeps() {
+    _sweepTimer?.cancel();
+    _sweepTimer = null;
+    _sweepStarts.clear();
+    _liveFrequencies.clear();
+    final now = DateTime.now();
+    var sweeping = false;
+    for (final layer in _layers) {
+      if (layer.sweepEnabled) {
+        layer.frequency = layer.sweepFrom;
+        _liveFrequencies[layer.id] = layer.sweepFrom;
+        _sweepStarts[layer.id] = now;
+        _synth.setFrequency(layer.id, layer.sweepFrom);
+        sweeping = true;
+      } else {
+        _liveFrequencies[layer.id] = layer.frequency;
+      }
+    }
+    if (!sweeping) return;
+    _sweepTicks = 0;
+    _sweepTimer = Timer.periodic(
+      const Duration(milliseconds: 50),
+      (_) => _tickSweeps(),
+    );
+  }
+
+  void _ensureSweepTimer() {
+    if (_sweepTimer != null || !_playing) return;
+    if (!_layers.any((layer) => layer.sweepEnabled)) return;
+    _sweepTicks = 0;
+    _sweepTimer = Timer.periodic(
+      const Duration(milliseconds: 50),
+      (_) => _tickSweeps(),
+    );
+  }
+
+  void _cancelSweepTimerIfIdle() {
+    if (_sweepTimer == null) return;
+    if (_playing && _layers.any((layer) => layer.sweepEnabled)) return;
+    _sweepTimer?.cancel();
+    _sweepTimer = null;
+  }
+
+  void _tickSweeps() {
+    if (!mounted || !_playing) return;
+    final now = DateTime.now();
+    var changed = false;
+    var running = false;
+    for (final layer in _layers) {
+      if (!layer.sweepEnabled) continue;
+      final start = _sweepStarts[layer.id];
+      if (start == null) continue;
+      final elapsed = now.difference(start).inMilliseconds;
+      final duration = layer.sweepDuration.inMilliseconds;
+      final progress = toneSweepProgress(elapsed, duration, layer.sweepRepeat);
+      final frequency = toneSweepFrequency(
+        from: layer.sweepFrom,
+        to: layer.sweepTo,
+        progress: progress,
+        logarithmic: layer.sweepLogarithmic,
+      );
+      final previous = _liveFrequencies[layer.id];
+      if (previous == null || (frequency - previous).abs() >= 0.01) {
+        _liveFrequencies[layer.id] = frequency;
+        _synth.setFrequency(layer.id, frequency);
+        changed = true;
+      }
+      if (layer.sweepRepeat || (duration > 0 && elapsed < duration)) {
+        running = true;
+      } else {
+        // One-shot sweep finished: hold at the end frequency.
+        _sweepStarts.remove(layer.id);
+      }
+    }
+    if (!running) {
+      _sweepTimer?.cancel();
+      _sweepTimer = null;
+    }
+    _sweepTicks++;
+    if (changed && _sweepTicks.isEven) setState(() {});
+  }
+
+  void _stopSweeps() {
+    _sweepTimer?.cancel();
+    _sweepTimer = null;
+    _sweepStarts.clear();
+    _liveFrequencies.clear();
   }
 
   void _showHundredHertzInfo(BuildContext context) {
@@ -6610,9 +6940,10 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
   Widget _toneCard(BuildContext context) {
     final theme = Theme.of(context);
     final layer = _activeLayer;
-    final note = toneNoteForFrequency(layer.frequency);
-    final period = tonePeriodMilliseconds(layer.frequency);
-    final wavelength = toneWavelengthCentimeters(layer.frequency);
+    final frequency = _displayFrequency;
+    final note = toneNoteForFrequency(frequency);
+    final period = tonePeriodMilliseconds(frequency);
+    final wavelength = toneWavelengthCentimeters(frequency);
     final remaining = _remaining;
     final status = <String>[
       if (_layers.length > 1)
@@ -6623,6 +6954,8 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
         ),
       if (layer.channel != ToneChannel.both)
         tr(context, layer.channel.englishName, layer.channel.chineseName),
+      if (_playing && _sweepStarts.containsKey(layer.id))
+        tr(context, 'Sweeping', '扫频中'),
     ].join(' · ');
     return Card(
       child: Padding(
@@ -6654,7 +6987,7 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      formatToneFrequency(layer.frequency),
+                      formatToneFrequency(frequency),
                       style: theme.textTheme.displaySmall?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -6861,6 +7194,7 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
               children: [
                 Expanded(
                   child: TextField(
+                    key: const ValueKey('tone-frequency-field'),
                     controller: _frequencyController,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
@@ -6938,6 +7272,192 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
                   ),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _sweepDurationLabel(BuildContext context, int seconds) =>
+      tr(context, '$seconds s', '$seconds 秒');
+
+  Widget _sweepCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final layer = _activeLayer;
+    final title = _layers.length > 1
+        ? tr(
+            context,
+            'Frequency sweep · Tone ${_activeLayerIndex + 1}',
+            '频率扫频 · 音层 ${_activeLayerIndex + 1}',
+          )
+        : tr(context, 'Frequency sweep', '频率扫频');
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.trending_up, color: scheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(title, style: theme.textTheme.titleMedium),
+                ),
+                Switch(
+                  key: const ValueKey('tone-sweep-switch'),
+                  value: layer.sweepEnabled,
+                  onChanged: _setSweepEnabled,
+                ),
+              ],
+            ),
+            Text(
+              tr(
+                context,
+                'Glide the selected tone from a start frequency to an end frequency over a set time.',
+                '让当前音层在设定时间内从起始频率变化到结束频率。',
+              ),
+              style: theme.textTheme.bodySmall,
+            ),
+            if (!layer.sweepEnabled) ...[
+              const SizedBox(height: 8),
+              Text(
+                tr(
+                  context,
+                  'Turn the sweep on to set its range and duration. It restarts whenever playback begins.',
+                  '开启后可设置扫频范围与持续时间；每次开始播放时都会从头扫频。',
+                ),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const ValueKey('tone-sweep-from'),
+                      controller: _sweepFromController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: _onSweepFromInput,
+                      decoration: InputDecoration(
+                        labelText: tr(context, 'Start', '起始频率'),
+                        suffixText: 'Hz',
+                        isDense: true,
+                        border: const OutlineInputBorder(),
+                        errorText: _sweepFromError,
+                        errorMaxLines: 2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      key: const ValueKey('tone-sweep-end'),
+                      controller: _sweepEndController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: _onSweepEndInput,
+                      decoration: InputDecoration(
+                        labelText: tr(context, 'End', '结束频率'),
+                        suffixText: 'Hz',
+                        isDense: true,
+                        border: const OutlineInputBorder(),
+                        errorText: _sweepEndError,
+                        errorMaxLines: 2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  OutlinedButton(
+                    onPressed: () => _setSweepEnd(layer.sweepFrom * 2),
+                    child: const Text('×2'),
+                  ),
+                  OutlinedButton(
+                    onPressed: () => _setSweepEnd(layer.sweepFrom * 4),
+                    child: const Text('×4'),
+                  ),
+                  OutlinedButton(
+                    onPressed: () => _setSweepEnd(layer.sweepFrom / 2),
+                    child: const Text('÷2'),
+                  ),
+                  OutlinedButton(
+                    onPressed: () => _setSweepEnd(toneMaxFrequency),
+                    child: Text(tr(context, 'Max', '最高')),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('tone-sweep-duration'),
+                controller: _sweepDurationController,
+                keyboardType: TextInputType.number,
+                onChanged: _onSweepDurationInput,
+                decoration: InputDecoration(
+                  labelText: tr(context, 'Duration', '持续时间'),
+                  suffixText: 's',
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                  errorText: _sweepDurationError,
+                  errorMaxLines: 2,
+                  helperText: tr(context, '1–3600 seconds', '1–3600 秒'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final seconds in const [5, 10, 30, 60, 300])
+                    ChoiceChip(
+                      label: Text(_sweepDurationLabel(context, seconds)),
+                      selected: layer.sweepDuration.inSeconds == seconds,
+                      onSelected: (_) => _setSweepSeconds(seconds),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SegmentedButton<bool>(
+                segments: [
+                  ButtonSegment(
+                    value: false,
+                    label: Text(tr(context, 'Linear', '线性')),
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    label: Text(tr(context, 'Logarithmic', '对数')),
+                  ),
+                ],
+                selected: {layer.sweepLogarithmic},
+                onSelectionChanged: (selection) =>
+                    _setSweepLogarithmic(selection.first),
+              ),
+              SwitchListTile(
+                key: const ValueKey('tone-sweep-repeat'),
+                contentPadding: EdgeInsets.zero,
+                title: Text(tr(context, 'Back and forth', '往返扫频')),
+                subtitle: Text(
+                  tr(
+                    context,
+                    'Reverse at the end instead of stopping.',
+                    '到达结束频率后反向返回，而不是停止。',
+                  ),
+                ),
+                value: layer.sweepRepeat,
+                onChanged: _setSweepRepeat,
+              ),
+            ],
           ],
         ),
       ),
@@ -7101,7 +7621,11 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
             const SizedBox(height: 16),
             _layersCard(context),
             const SizedBox(height: 16),
-            _frequencyCard(context),
+            if (!_activeLayer.sweepEnabled) ...[
+              _frequencyCard(context),
+              const SizedBox(height: 16),
+            ],
+            _sweepCard(context),
             const SizedBox(height: 16),
             _waveformCard(context),
             const SizedBox(height: 16),

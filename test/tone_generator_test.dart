@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -115,6 +117,73 @@ void main() {
         {'left': 0.5, 'right': 0.5, 'both': 0.5},
       );
     });
+
+    test('interpolates linear and logarithmic sweeps', () {
+      const from = 440.0;
+      const to = 880.0;
+      expect(
+        toneSweepFrequency(from: from, to: to, progress: 0, logarithmic: true),
+        closeTo(from, 0.001),
+      );
+      expect(
+        toneSweepFrequency(from: from, to: to, progress: 1, logarithmic: true),
+        closeTo(to, 0.001),
+      );
+      expect(
+        toneSweepFrequency(
+          from: from,
+          to: to,
+          progress: 0.5,
+          logarithmic: true,
+        ),
+        closeTo(440 * sqrt2, 0.001),
+      );
+      expect(
+        toneSweepFrequency(
+          from: from,
+          to: to,
+          progress: 0.5,
+          logarithmic: false,
+        ),
+        closeTo(660, 0.001),
+      );
+      expect(
+        toneSweepFrequency(
+          from: to,
+          to: from,
+          progress: 0.5,
+          logarithmic: true,
+        ),
+        closeTo(440 * sqrt2, 0.001),
+      );
+      expect(
+        toneSweepFrequency(from: from, to: to, progress: -1, logarithmic: true),
+        closeTo(from, 0.001),
+      );
+      expect(
+        toneSweepFrequency(from: from, to: to, progress: 2, logarithmic: true),
+        closeTo(to, 0.001),
+      );
+    });
+
+    test('computes one-shot and ping-pong sweep progress', () {
+      expect(toneSweepProgress(0, 1000, false), 0);
+      expect(toneSweepProgress(500, 1000, false), 0.5);
+      expect(toneSweepProgress(1000, 1000, false), 1);
+      expect(toneSweepProgress(2000, 1000, false), 1);
+      expect(toneSweepProgress(500, 1000, true), 0.5);
+      expect(toneSweepProgress(1000, 1000, true), 1);
+      expect(toneSweepProgress(1500, 1000, true), 0.5);
+      expect(toneSweepProgress(2000, 1000, true), 0);
+      expect(toneSweepProgress(500, 0, false), 1);
+    });
+
+    test('picks a sensible default sweep target', () {
+      expect(defaultSweepTarget(440), 880);
+      expect(defaultSweepTarget(20), 40);
+      expect(defaultSweepTarget(15000), 7500);
+      expect(defaultSweepTarget(20000), 10000);
+    });
   });
 
   testWidgets('shows the frequency generator controls', (tester) async {
@@ -147,19 +216,28 @@ void main() {
     await tester.tap(find.text('Frequency Generator'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), '1234.5');
+    await tester.enterText(
+      find.byKey(const ValueKey('tone-frequency-field')),
+      '1234.5',
+    );
     await tester.pump();
     expect(find.text('1234.5 Hz'), findsWidgets);
     expect(find.textContaining('A4'), findsNothing);
 
-    await tester.enterText(find.byType(TextField), '99999');
+    await tester.enterText(
+      find.byKey(const ValueKey('tone-frequency-field')),
+      '99999',
+    );
     await tester.pump();
     expect(
       find.text('Enter a frequency between 20 and 20,000 Hz.'),
       findsOneWidget,
     );
 
-    await tester.enterText(find.byType(TextField), '440');
+    await tester.enterText(
+      find.byKey(const ValueKey('tone-frequency-field')),
+      '440',
+    );
     await tester.pump();
     expect(find.text('A4 0 ct'), findsOneWidget);
   });
@@ -241,6 +319,95 @@ void main() {
     expect(find.text('880 Hz'), findsNothing);
     expect(find.text('Tone 2/2'), findsNothing);
     expect(find.text('Tone 1/1'), findsNothing);
+  });
+
+  testWidgets('configures a frequency sweep', (tester) async {
+    tester.view.physicalSize = const Size(1200, 4400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.tap(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Frequency sweep'), findsOneWidget);
+    expect(find.text('Exact frequency'), findsOneWidget);
+
+    final switchFinder = find.byKey(const ValueKey('tone-sweep-switch'));
+    expect(tester.widget<Switch>(switchFinder).value, isFalse);
+
+    await tester.tap(switchFinder);
+    await tester.pump();
+
+    expect(tester.widget<Switch>(switchFinder).value, isTrue);
+    // The manual frequency card is replaced by the sweep range.
+    expect(find.text('Exact frequency'), findsNothing);
+
+    final fromFinder = find.byKey(const ValueKey('tone-sweep-from'));
+    final endFinder = find.byKey(const ValueKey('tone-sweep-end'));
+    final durationFinder = find.byKey(const ValueKey('tone-sweep-duration'));
+
+    expect(tester.widget<TextField>(fromFinder).controller!.text, '440');
+    expect(tester.widget<TextField>(endFinder).controller!.text, '880');
+    expect(tester.widget<TextField>(durationFinder).controller!.text, '10');
+
+    await tester.enterText(fromFinder, '300');
+    await tester.enterText(endFinder, '1200');
+    await tester.enterText(durationFinder, '30');
+    await tester.pump();
+
+    await tester.enterText(fromFinder, '99999');
+    await tester.pump();
+    expect(
+      find.text('Enter a start frequency between 20 and 20,000 Hz.'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(endFinder, '99999');
+    await tester.pump();
+    expect(
+      find.text('Enter an end frequency between 20 and 20,000 Hz.'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(durationFinder, '0');
+    await tester.pump();
+    expect(
+      find.text('Enter a duration between 1 and 3600 seconds.'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(fromFinder, '300');
+    await tester.enterText(endFinder, '1200');
+    await tester.enterText(durationFinder, '30');
+    await tester.pump();
+
+    final repeatFinder = find.byKey(const ValueKey('tone-sweep-repeat'));
+    expect(tester.widget<SwitchListTile>(repeatFinder).value, isFalse);
+    await tester.tap(repeatFinder);
+    await tester.pump();
+    expect(tester.widget<SwitchListTile>(repeatFinder).value, isTrue);
+
+    await tester.tap(find.text('Linear'));
+    await tester.pump();
+    var curve = tester.widget<SegmentedButton<bool>>(
+      find.byType(SegmentedButton<bool>),
+    );
+    expect(curve.selected, {false});
+
+    await tester.tap(find.text('Logarithmic'));
+    await tester.pump();
+    curve = tester.widget<SegmentedButton<bool>>(
+      find.byType(SegmentedButton<bool>),
+    );
+    expect(curve.selected, {true});
+
+    // Turning the sweep off brings the manual frequency card back.
+    await tester.tap(switchFinder);
+    await tester.pump();
+    expect(find.text('Exact frequency'), findsOneWidget);
   });
 
   testWidgets('explains the 100 Hz motion sickness note', (tester) async {
