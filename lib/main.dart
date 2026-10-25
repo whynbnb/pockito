@@ -442,8 +442,9 @@ const toolInfos = <ToolInfo>[
     icon: Icons.graphic_eq,
     englishTitle: 'Frequency Generator',
     chineseTitle: '频率发生器',
-    englishSubtitle: 'Play a pure tone at any frequency and waveform.',
-    chineseSubtitle: '播放任意频率与波形的纯音。',
+    englishSubtitle:
+        'Play pure tones with custom frequencies, channels and layers.',
+    chineseSubtitle: '播放自定义频率、声道与叠加层的纯音。',
   ),
 ];
 
@@ -5963,67 +5964,240 @@ double tonePeriodMilliseconds(double hz) => 1000 / clampToneFrequency(hz);
 
 double toneWavelengthCentimeters(double hz) => 34300 / clampToneFrequency(hz);
 
+enum ToneChannel { both, left, right }
+
+extension ToneChannelDetails on ToneChannel {
+  String get englishName => switch (this) {
+    ToneChannel.both => 'Both channels',
+    ToneChannel.left => 'Left channel',
+    ToneChannel.right => 'Right channel',
+  };
+
+  String get chineseName => switch (this) {
+    ToneChannel.both => '双声道',
+    ToneChannel.left => '左声道',
+    ToneChannel.right => '右声道',
+  };
+
+  IconData get icon => switch (this) {
+    ToneChannel.both => Icons.surround_sound_outlined,
+    ToneChannel.left => Icons.align_horizontal_left,
+    ToneChannel.right => Icons.align_horizontal_right,
+  };
+
+  double get pan => switch (this) {
+    ToneChannel.both => 0,
+    ToneChannel.left => -1,
+    ToneChannel.right => 1,
+  };
+}
+
+class ToneLayer {
+  ToneLayer({
+    required this.id,
+    required this.frequency,
+    this.channel = ToneChannel.both,
+  });
+
+  final String id;
+  double frequency;
+  ToneChannel channel;
+}
+
+/// Splits the available headroom between simultaneous layers so that a stack
+/// of pure tones does not clip. A layer routed to one channel only competes
+/// with the layers on that channel; a both-channel layer competes with the
+/// busier side.
+Map<String, double> toneLayerGains(List<ToneLayer> layers) {
+  var leftCount = 0;
+  var rightCount = 0;
+  for (final layer in layers) {
+    if (layer.channel != ToneChannel.right) leftCount++;
+    if (layer.channel != ToneChannel.left) rightCount++;
+  }
+  final gains = <String, double>{};
+  for (final layer in layers) {
+    final count = switch (layer.channel) {
+      ToneChannel.left => leftCount,
+      ToneChannel.right => rightCount,
+      ToneChannel.both => max(leftCount, rightCount),
+    };
+    gains[layer.id] = 1 / max(1, count);
+  }
+  return gains;
+}
+
+class _ToneVoice {
+  _ToneVoice({required this.source, required this.handle});
+
+  final AudioSource source;
+  final SoundHandle handle;
+}
+
 class _ToneSynth {
   final SoLoud _soloud = SoLoud.instance;
-  AudioSource? _source;
-  SoundHandle? _handle;
+  final Map<String, _ToneVoice> _voices = {};
+  ToneWaveform _waveform = ToneWaveform.sine;
+  double _volume = 0.3;
+  int _generation = 0;
 
   Future<void> start({
-    required double frequency,
+    required List<ToneLayer> layers,
     required ToneWaveform waveform,
     required double volume,
   }) async {
+    stop(fade: false);
+    final generation = ++_generation;
     if (!_soloud.isInitialized) {
       await _soloud.init();
     }
-    var source = _source;
-    if (source == null) {
-      source = await _soloud.loadWaveform(waveform.nativeWaveform, false, 1, 0);
-      _source = source;
+    if (generation != _generation) return;
+    _waveform = waveform;
+    _volume = volume;
+    final snapshot = List<ToneLayer>.of(layers);
+    final gains = toneLayerGains(snapshot);
+    for (final layer in snapshot) {
+      final source = await _soloud.loadWaveform(
+        waveform.nativeWaveform,
+        false,
+        1,
+        0,
+      );
+      if (generation != _generation) {
+        await _disposeSource(source);
+        return;
+      }
+      _soloud.setWaveformFreq(source, layer.frequency);
+      final handle = _soloud.play(
+        source,
+        volume: 0,
+        pan: layer.channel.pan,
+        looping: true,
+      );
+      _voices[layer.id] = _ToneVoice(source: source, handle: handle);
+      _soloud.fadeVolume(
+        handle,
+        volume * (gains[layer.id] ?? 1),
+        const Duration(milliseconds: 60),
+      );
     }
-    _soloud.setWaveform(source, waveform.nativeWaveform);
-    _soloud.setWaveformFreq(source, frequency);
-    final handle = _soloud.play(source, volume: 0, looping: true);
-    _handle = handle;
-    _soloud.fadeVolume(handle, volume, const Duration(milliseconds: 60));
   }
 
-  void setFrequency(double frequency) {
-    final source = _source;
-    if (source != null) _soloud.setWaveformFreq(source, frequency);
+  void setFrequency(String id, double frequency) {
+    final voice = _voices[id];
+    if (voice != null) _soloud.setWaveformFreq(voice.source, frequency);
+  }
+
+  void setChannel(String id, ToneChannel channel, List<ToneLayer> layers) {
+    final voice = _voices[id];
+    if (voice == null) return;
+    _soloud.setPan(voice.handle, channel.pan);
+    _applyGains(layers);
   }
 
   void setWaveform(ToneWaveform waveform) {
-    final source = _source;
-    if (source != null) _soloud.setWaveform(source, waveform.nativeWaveform);
+    _waveform = waveform;
+    for (final voice in _voices.values) {
+      _soloud.setWaveform(voice.source, waveform.nativeWaveform);
+    }
   }
 
-  void setVolume(double volume) {
-    final handle = _handle;
-    if (handle != null) _soloud.setVolume(handle, volume);
+  void setVolume(double volume, List<ToneLayer> layers) {
+    _volume = volume;
+    _applyGains(layers);
+  }
+
+  Future<void> addLayer(ToneLayer layer, List<ToneLayer> layers) async {
+    final generation = _generation;
+    final source = await _soloud.loadWaveform(
+      _waveform.nativeWaveform,
+      false,
+      1,
+      0,
+    );
+    if (generation != _generation ||
+        !layers.any((item) => item.id == layer.id)) {
+      await _disposeSource(source);
+      return;
+    }
+    _soloud.setWaveform(source, _waveform.nativeWaveform);
+    _soloud.setWaveformFreq(source, layer.frequency);
+    final handle = _soloud.play(
+      source,
+      volume: 0,
+      pan: layer.channel.pan,
+      looping: true,
+    );
+    _voices[layer.id] = _ToneVoice(source: source, handle: handle);
+    final gains = toneLayerGains(layers);
+    for (final entry in _voices.entries) {
+      if (entry.key == layer.id) continue;
+      _soloud.setVolume(entry.value.handle, _volume * (gains[entry.key] ?? 1));
+    }
+    _soloud.fadeVolume(
+      handle,
+      _volume * (gains[layer.id] ?? 1),
+      const Duration(milliseconds: 60),
+    );
+  }
+
+  void removeLayer(String id, List<ToneLayer> layers) {
+    final voice = _voices.remove(id);
+    if (voice == null) return;
+    _stopVoice(voice);
+    _applyGains(layers);
   }
 
   void stop({bool fade = true}) {
-    final handle = _handle;
-    if (handle == null) return;
-    _handle = null;
-    try {
-      if (fade) {
-        _soloud.fadeVolume(handle, 0, const Duration(milliseconds: 50));
-        _soloud.scheduleStop(handle, const Duration(milliseconds: 70));
-      } else {
-        unawaited(_soloud.stop(handle).catchError((_) {}));
-      }
-    } catch (_) {
-      // The engine may already be shutting down.
+    _generation++;
+    final voices = _voices.values.toList();
+    _voices.clear();
+    for (final voice in voices) {
+      _stopVoice(voice, fade: fade);
     }
   }
 
   Future<void> dispose() async {
-    stop(fade: false);
-    final source = _source;
-    _source = null;
-    if (source == null) return;
+    _generation++;
+    final voices = _voices.values.toList();
+    _voices.clear();
+    for (final voice in voices) {
+      try {
+        await _soloud.stop(voice.handle);
+      } catch (_) {
+        // The engine may already be shutting down.
+      }
+      await _disposeSource(voice.source);
+    }
+  }
+
+  void _applyGains(List<ToneLayer> layers) {
+    final gains = toneLayerGains(layers);
+    for (final entry in _voices.entries) {
+      _soloud.setVolume(entry.value.handle, _volume * (gains[entry.key] ?? 1));
+    }
+  }
+
+  void _stopVoice(_ToneVoice voice, {bool fade = true}) {
+    try {
+      if (fade) {
+        _soloud.fadeVolume(voice.handle, 0, const Duration(milliseconds: 50));
+        _soloud.scheduleStop(voice.handle, const Duration(milliseconds: 70));
+      } else {
+        unawaited(_soloud.stop(voice.handle).catchError((_) {}));
+      }
+    } catch (_) {
+      // The engine may already be shutting down.
+    }
+    unawaited(_disposeSourceLater(voice.source));
+  }
+
+  Future<void> _disposeSourceLater(AudioSource source) async {
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await _disposeSource(source);
+  }
+
+  Future<void> _disposeSource(AudioSource source) async {
     try {
       await _soloud.disposeSource(source);
     } catch (_) {
@@ -6139,9 +6313,14 @@ class ToneGeneratorScreen extends StatefulWidget {
 
 class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
   static const _defaultFrequency = 440.0;
+  static const _maxLayers = 4;
   final _synth = _ToneSynth();
   final _frequencyController = TextEditingController(text: '440');
-  double _frequency = _defaultFrequency;
+  final List<ToneLayer> _layers = [
+    ToneLayer(id: 'tone-1', frequency: _defaultFrequency),
+  ];
+  String _activeLayerId = 'tone-1';
+  int _nextLayerId = 2;
   double _volume = 0.3;
   ToneWaveform _waveform = ToneWaveform.sine;
   Duration? _limit;
@@ -6152,6 +6331,18 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
   String? _error;
   String? _inputError;
   int _session = 0;
+
+  ToneLayer get _activeLayer => _layers.firstWhere(
+    (layer) => layer.id == _activeLayerId,
+    orElse: () => _layers.first,
+  );
+
+  int get _activeLayerIndex {
+    final index = _layers.indexWhere((layer) => layer.id == _activeLayerId);
+    return index < 0 ? 0 : index;
+  }
+
+  double get _frequency => _activeLayer.frequency;
 
   Duration? get _remaining {
     final endsAt = _endsAt;
@@ -6178,11 +6369,7 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
       _error = null;
     });
     try {
-      await _synth.start(
-        frequency: _frequency,
-        waveform: _waveform,
-        volume: _volume,
-      );
+      await _synth.start(layers: _layers, waveform: _waveform, volume: _volume);
       if (!mounted) return;
       if (session != _session) {
         // A stop request arrived while the engine was starting. Discard the
@@ -6195,11 +6382,17 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
       unawaited(
         _PlaybackChannel.start(
           title: tr(context, 'Frequency generator', '频率发生器'),
-          text: tr(
-            context,
-            'Playing ${formatToneFrequency(_frequency)}',
-            '正在播放 ${formatToneFrequency(_frequency)}',
-          ),
+          text: _layers.length == 1
+              ? tr(
+                  context,
+                  'Playing ${formatToneFrequency(_frequency)}',
+                  '正在播放 ${formatToneFrequency(_frequency)}',
+                )
+              : tr(
+                  context,
+                  'Playing ${_layers.length} tones',
+                  '正在播放 ${_layers.length} 个音调',
+                ),
         ),
       );
     } catch (error) {
@@ -6263,11 +6456,11 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
   void _applyFrequency(double value, {bool syncField = true}) {
     final frequency = clampToneFrequency(value);
     setState(() {
-      _frequency = frequency;
+      _activeLayer.frequency = frequency;
       _inputError = null;
       if (syncField) _frequencyController.text = formatToneNumber(frequency);
     });
-    _synth.setFrequency(frequency);
+    _synth.setFrequency(_activeLayer.id, frequency);
   }
 
   void _onFrequencyInput(String value) {
@@ -6290,12 +6483,58 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
 
   void _setVolume(double value) {
     setState(() => _volume = value);
-    _synth.setVolume(value);
+    _synth.setVolume(value, _layers);
   }
 
   void _setWaveform(ToneWaveform waveform) {
     setState(() => _waveform = waveform);
     _synth.setWaveform(waveform);
+  }
+
+  void _selectLayer(ToneLayer layer) {
+    if (layer.id == _activeLayerId) return;
+    setState(() {
+      _activeLayerId = layer.id;
+      _frequencyController.text = formatToneNumber(layer.frequency);
+      _inputError = null;
+    });
+  }
+
+  void _addLayer() {
+    if (_layers.length >= _maxLayers) return;
+    final base = _activeLayer.frequency;
+    final doubled = base * 2;
+    final frequency = clampToneFrequency(
+      doubled <= toneMaxFrequency ? doubled : base / 2,
+    );
+    final layer = ToneLayer(id: 'tone-${_nextLayerId++}', frequency: frequency);
+    setState(() {
+      _layers.add(layer);
+      _activeLayerId = layer.id;
+      _frequencyController.text = formatToneNumber(frequency);
+      _inputError = null;
+    });
+    if (_playing) unawaited(_synth.addLayer(layer, _layers));
+  }
+
+  void _removeLayer(ToneLayer layer) {
+    if (_layers.length <= 1) return;
+    final wasActive = layer.id == _activeLayerId;
+    setState(() {
+      _layers.removeWhere((item) => item.id == layer.id);
+      if (wasActive) {
+        _activeLayerId = _layers.first.id;
+        _frequencyController.text = formatToneNumber(_layers.first.frequency);
+        _inputError = null;
+      }
+    });
+    if (_playing) _synth.removeLayer(layer.id, _layers);
+  }
+
+  void _setLayerChannel(ToneLayer layer, ToneChannel channel) {
+    if (layer.channel == channel) return;
+    setState(() => layer.channel = channel);
+    if (_playing) _synth.setChannel(layer.id, channel, _layers);
   }
 
   void _showHundredHertzInfo(BuildContext context) {
@@ -6370,10 +6609,21 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
 
   Widget _toneCard(BuildContext context) {
     final theme = Theme.of(context);
-    final note = toneNoteForFrequency(_frequency);
-    final period = tonePeriodMilliseconds(_frequency);
-    final wavelength = toneWavelengthCentimeters(_frequency);
+    final layer = _activeLayer;
+    final note = toneNoteForFrequency(layer.frequency);
+    final period = tonePeriodMilliseconds(layer.frequency);
+    final wavelength = toneWavelengthCentimeters(layer.frequency);
     final remaining = _remaining;
+    final status = <String>[
+      if (_layers.length > 1)
+        tr(
+          context,
+          'Tone ${_activeLayerIndex + 1}/${_layers.length}',
+          '音层 ${_activeLayerIndex + 1}/${_layers.length}',
+        ),
+      if (layer.channel != ToneChannel.both)
+        tr(context, layer.channel.englishName, layer.channel.chineseName),
+    ].join(' · ');
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -6388,6 +6638,10 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
                   tr(context, 'Pure tone', '纯音'),
                   style: theme.textTheme.titleMedium,
                 ),
+                if (status.isNotEmpty) ...[
+                  const Spacer(),
+                  Text(status, style: theme.textTheme.bodySmall),
+                ],
               ],
             ),
             const SizedBox(height: 12),
@@ -6400,7 +6654,7 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      formatToneFrequency(_frequency),
+                      formatToneFrequency(layer.frequency),
                       style: theme.textTheme.displaySmall?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -6482,6 +6736,103 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
     );
   }
 
+  Widget _layersCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.layers_outlined, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  tr(context, 'Tones', '音调层'),
+                  style: theme.textTheme.titleMedium,
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _layers.length < _maxLayers ? _addLayer : null,
+                  icon: const Icon(Icons.add),
+                  label: Text(tr(context, 'Add', '添加')),
+                ),
+              ],
+            ),
+            Text(
+              tr(
+                context,
+                'Mix up to $_maxLayers tones. Send a layer to the left or right channel for a different frequency in each ear.',
+                '最多叠加 $_maxLayers 个音调。把某一层设为左或右声道，即可让左右耳听到不同频率。',
+              ),
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 4),
+            for (final layer in _layers)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                selected: layer.id == _activeLayerId,
+                leading: Icon(
+                  layer.id == _activeLayerId
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  color: layer.id == _activeLayerId ? scheme.primary : null,
+                ),
+                title: Text(formatToneFrequency(layer.frequency)),
+                subtitle: Text(
+                  tr(
+                    context,
+                    layer.channel.englishName,
+                    layer.channel.chineseName,
+                  ),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    PopupMenuButton<ToneChannel>(
+                      key: ValueKey('tone-channel-${layer.id}'),
+                      tooltip: tr(context, 'Channel', '声道'),
+                      icon: Icon(layer.channel.icon),
+                      onSelected: (channel) => _setLayerChannel(layer, channel),
+                      itemBuilder: (context) => [
+                        for (final channel in ToneChannel.values)
+                          PopupMenuItem(
+                            value: channel,
+                            child: Row(
+                              children: [
+                                Icon(channel.icon, size: 18),
+                                const SizedBox(width: 8),
+                                Text(
+                                  tr(
+                                    context,
+                                    channel.englishName,
+                                    channel.chineseName,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                    IconButton(
+                      tooltip: tr(context, 'Remove tone', '删除音调层'),
+                      onPressed: _layers.length > 1
+                          ? () => _removeLayer(layer)
+                          : null,
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                onTap: () => _selectLayer(layer),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _frequencyCard(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
@@ -6491,7 +6842,13 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              tr(context, 'Frequency', '频率'),
+              _layers.length > 1
+                  ? tr(
+                      context,
+                      'Frequency · Tone ${_activeLayerIndex + 1}',
+                      '频率 · 音层 ${_activeLayerIndex + 1}',
+                    )
+                  : tr(context, 'Frequency', '频率'),
               style: theme.textTheme.titleMedium,
             ),
             Slider(
@@ -6741,6 +7098,8 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
           children: [
             _toneCard(context),
+            const SizedBox(height: 16),
+            _layersCard(context),
             const SizedBox(height: 16),
             _frequencyCard(context),
             const SizedBox(height: 16),

@@ -80,6 +80,41 @@ void main() {
         expect(waveform.chineseName, isNotEmpty);
       }
     });
+
+    test('maps channels to stereo pan', () {
+      expect(ToneChannel.both.pan, 0);
+      expect(ToneChannel.left.pan, -1);
+      expect(ToneChannel.right.pan, 1);
+    });
+
+    test('splits headroom between simultaneous layers', () {
+      ToneLayer layer(String id, ToneChannel channel) =>
+          ToneLayer(id: id, frequency: 440, channel: channel);
+
+      expect(toneLayerGains([layer('a', ToneChannel.both)])['a'], 1);
+      expect(
+        toneLayerGains([
+          layer('left', ToneChannel.left),
+          layer('right', ToneChannel.right),
+        ]),
+        {'left': 1.0, 'right': 1.0},
+      );
+      expect(
+        toneLayerGains([
+          layer('a', ToneChannel.both),
+          layer('b', ToneChannel.both),
+        ]),
+        {'a': 0.5, 'b': 0.5},
+      );
+      expect(
+        toneLayerGains([
+          layer('left', ToneChannel.left),
+          layer('right', ToneChannel.right),
+          layer('both', ToneChannel.both),
+        ]),
+        {'left': 0.5, 'right': 0.5, 'both': 0.5},
+      );
+    });
   });
 
   testWidgets('shows the frequency generator controls', (tester) async {
@@ -114,7 +149,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField), '1234.5');
     await tester.pump();
-    expect(find.text('1234.5 Hz'), findsOneWidget);
+    expect(find.text('1234.5 Hz'), findsWidgets);
     expect(find.textContaining('A4'), findsNothing);
 
     await tester.enterText(find.byType(TextField), '99999');
@@ -168,6 +203,44 @@ void main() {
     await tester.pump();
     expect(chipFor('No limit').selected, isTrue);
     expect(chipFor('5 min').selected, isFalse);
+  });
+
+  testWidgets('adds tones and assigns a channel', (tester) async {
+    tester.view.physicalSize = const Size(1200, 3600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.tap(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tones'), findsOneWidget);
+    expect(find.text('Both channels'), findsOneWidget);
+    expect(find.text('Tone 1/1'), findsNothing);
+
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('880 Hz'), findsWidgets);
+    expect(find.text('Tone 2/2'), findsOneWidget);
+    expect(find.text('Both channels'), findsNWidgets(2));
+
+    await tester.tap(find.byKey(const ValueKey('tone-channel-tone-2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Left channel').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Left channel'), findsWidgets);
+    expect(find.text('Tone 2/2 · Left channel'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Remove tone').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('880 Hz'), findsNothing);
+    expect(find.text('Tone 2/2'), findsNothing);
+    expect(find.text('Tone 1/1'), findsNothing);
   });
 
   testWidgets('explains the 100 Hz motion sickness note', (tester) async {
