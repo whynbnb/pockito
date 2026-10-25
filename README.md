@@ -69,4 +69,4 @@ iOS / macOS 的原生插件通过 Swift Package Manager 集成。如果本机曾
 
 震动器工具的界面与思路灵感来自 xiaofeidev 的开源项目 [Vibrator](https://github.com/xiaofeidev/Vibrator)（Apache License 2.0）。应用内震动器页面的信息按钮可查看该致谢。
 
-频率发生器与上述参考项目无关，其音频输出直接使用运行时依赖 [flutter_soloud](https://github.com/alnitak/flutter_soloud)（MIT License，内含 SoLoud 与 miniaudio 引擎），覆盖 Android、iOS、Windows、macOS 和 Linux；应用启用了 `no_xiph_libs`，因此不会打包 Ogg / Vorbis / Opus / FLAC 解码库。
+频率发生器中的 100 Hz 缓解晕车说明灵感来自 BHznJNs 的开源项目 [MotionEaseTune](https://github.com/BHznJNs/MotionEaseTune)（GNU General Public License v3.0），应用内频率发生器页面的信息按钮可查看该致谢。其音频输出直接使用运行时依赖 [flutter_soloud](https://github.com/alnitak/flutter_soloud)（MIT License，内含 SoLoud 与 miniaudio 引擎），覆盖 Android、iOS、Windows、macOS 和 Linux；应用启用了 `no_xiph_libs`，因此不会打包 Ogg / Vorbis / Opus / FLAC 解码库。

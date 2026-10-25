@@ -23,6 +23,18 @@ void main() {
     expect(toolInfoById('2048')!.hasAcknowledgements, isFalse);
     expect(toolInfoById('flashlight')!.hasAcknowledgements, isTrue);
     expect(toolInfoById('counter')!.hasAcknowledgements, isTrue);
+    expect(toolInfoById('tone-generator')!.hasAcknowledgements, isTrue);
+  });
+
+  test('the frequency generator credits MotionEaseTune', () {
+    final tool = toolInfoById('tone-generator')!;
+    final credit = tool.credits.single;
+    expect(credit.project, 'MotionEaseTune');
+    expect(credit.author, 'BHznJNs');
+    expect(credit.license, contains('General Public License'));
+    expect(credit.url, 'https://github.com/BHznJNs/MotionEaseTune');
+    expect(credit.englishDescription, contains('100 Hz'));
+    expect(credit.chineseDescription, contains('100 Hz'));
   });
 
   test('credits carry a license and a url', () {
@@ -52,6 +64,30 @@ void main() {
     expect(find.byIcon(Icons.open_in_new), findsOneWidget);
     expect(
       find.text('https://gitlab.com/vecturagames/passwordgenerator'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the frequency generator opens the MotionEaseTune credit', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.tap(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.info_outline).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Acknowledgements'), findsOneWidget);
+    expect(find.textContaining('100 Hz motion-sickness'), findsOneWidget);
+    expect(
+      find.textContaining('License: GNU General Public License v3.0'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('https://github.com/BHznJNs/MotionEaseTune'),
       findsOneWidget,
     );
   });

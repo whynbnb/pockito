@@ -286,12 +286,16 @@ class ToolCredit {
     required this.author,
     required this.license,
     required this.url,
+    this.englishDescription = '',
+    this.chineseDescription = '',
   });
 
   final String project;
   final String author;
   final String license;
   final String url;
+  final String englishDescription;
+  final String chineseDescription;
 }
 
 class ToolInfo {
@@ -445,6 +449,20 @@ const toolInfos = <ToolInfo>[
     englishSubtitle:
         'Play pure tones with custom frequencies, channels, layers and sweeps.',
     chineseSubtitle: '播放自定义频率、声道、叠加层与扫频的纯音。',
+    credits: [
+      ToolCredit(
+        project: 'MotionEaseTune',
+        author: 'BHznJNs',
+        license: 'GNU General Public License v3.0',
+        url: 'https://github.com/BHznJNs/MotionEaseTune',
+        englishDescription:
+            'The 100 Hz motion-sickness note in the Frequency Generator is '
+            'inspired by the open-source MotionEaseTune by BHznJNs.',
+        chineseDescription:
+            '频率发生器中的 100 Hz 缓解晕车说明灵感来自 BHznJNs 的开源项目 '
+            'MotionEaseTune。',
+      ),
+    ],
   ),
 ];
 
@@ -459,13 +477,18 @@ String toolCreditDescription(
   BuildContext context,
   ToolInfo tool,
   ToolCredit credit,
-) => tr(
-  context,
-  'The ${tool.englishTitle} tool is inspired by the open-source '
-      '${credit.project} by ${credit.author}.',
-  '${tool.chineseTitle}的界面与思路灵感来自 ${credit.author} 的开源项目 '
-      '${credit.project}。',
-);
+) {
+  if (credit.englishDescription.isNotEmpty) {
+    return tr(context, credit.englishDescription, credit.chineseDescription);
+  }
+  return tr(
+    context,
+    'The ${tool.englishTitle} tool is inspired by the open-source '
+        '${credit.project} by ${credit.author}.',
+    '${tool.chineseTitle}的界面与思路灵感来自 ${credit.author} 的开源项目 '
+        '${credit.project}。',
+  );
+}
 
 Future<void> openToolUrl(BuildContext context, String url) async {
   final uri = Uri.tryParse(url);
@@ -7609,6 +7632,14 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
             onPressed: _stop,
             icon: const Icon(Icons.stop_circle_outlined),
           ),
+        IconButton(
+          tooltip: tr(context, 'Acknowledgements', '致谢'),
+          onPressed: () => showToolAcknowledgements(
+            context,
+            toolInfoById('tone-generator')!,
+          ),
+          icon: const Icon(Icons.info_outline),
+        ),
       ],
     ),
     body: Center(
