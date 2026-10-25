@@ -1,6 +1,8 @@
 package me.whynbnb.pockito
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.os.Build
@@ -13,11 +15,15 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
+private const val NOTIFICATION_PERMISSION_REQUEST = 1001
+
 class MainActivity : FlutterActivity() {
     private lateinit var cameraManager: CameraManager
     private lateinit var vibrator: Vibrator
     private var vibrateLoopHandler: Handler? = null
     private var vibrateLoopRunnable: Runnable? = null
+    private var pendingToneTitle: String? = null
+    private var pendingToneText: String? = null
     private var torchCameraId: String? = null
     private var torchOn = false
 
@@ -92,6 +98,67 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "pockito/background-audio",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> {
+                    val title = call.argument<String>("title") ?: "Pockito"
+                    val text = call.argument<String>("text") ?: "Playing a tone"
+                    try {
+                        startToneService(title, text)
+                        result.success(null)
+                    } catch (error: Exception) {
+                        result.error("background_audio_error", error.message, null)
+                    }
+                }
+                "stop" -> {
+                    pendingToneTitle = null
+                    pendingToneText = null
+                    try {
+                        TonePlaybackService.stop(this)
+                        result.success(null)
+                    } catch (error: Exception) {
+                        result.error("background_audio_error", error.message, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun startToneService(title: String, text: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingToneTitle = title
+            pendingToneText = text
+            requestPermissions(
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                NOTIFICATION_PERMISSION_REQUEST,
+            )
+            return
+        }
+        TonePlaybackService.start(this, title, text)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != NOTIFICATION_PERMISSION_REQUEST) return
+        val title = pendingToneTitle
+        val text = pendingToneText
+        pendingToneTitle = null
+        pendingToneText = null
+        if (title != null && text != null) {
+            TonePlaybackService.start(this, title, text)
         }
     }
 
@@ -249,6 +316,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         cancelVibrateLoop()
+        TonePlaybackService.stop(this)
         if (::cameraManager.isInitialized) {
             cameraManager.unregisterTorchCallback(torchCallback)
         }

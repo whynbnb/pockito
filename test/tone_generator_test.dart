@@ -62,6 +62,15 @@ void main() {
       expect(tonePeriodMilliseconds(20), closeTo(50, 0.0001));
     });
 
+    test('formats the remaining playback time', () {
+      expect(formatCountdown(const Duration(minutes: 1)), '1:00');
+      expect(formatCountdown(const Duration(seconds: 65)), '1:05');
+      expect(formatCountdown(const Duration(seconds: 9)), '0:09');
+      expect(formatCountdown(Duration.zero), '0:00');
+      expect(formatCountdown(const Duration(seconds: -3)), '0:00');
+      expect(formatCountdown(const Duration(minutes: 30)), '30:00');
+    });
+
     test('maps every waveform to a native waveform', () {
       expect(ToneWaveform.values, hasLength(4));
       expect(ToneWaveform.sine.nativeWaveform, WaveForm.sin);
@@ -118,6 +127,47 @@ void main() {
     await tester.enterText(find.byType(TextField), '440');
     await tester.pump();
     expect(find.text('A4 0 ct'), findsOneWidget);
+  });
+
+  testWidgets('selects a playback duration and shows the background note', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 3200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const VaultApp());
+
+    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.tap(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Playback time'), findsOneWidget);
+    expect(find.text('No limit'), findsOneWidget);
+    expect(find.text('1 min'), findsOneWidget);
+    expect(find.text('5 min'), findsOneWidget);
+    expect(find.text('10 min'), findsOneWidget);
+    expect(find.text('30 min'), findsOneWidget);
+    expect(
+      find.textContaining('switch apps or lock the screen'),
+      findsOneWidget,
+    );
+
+    ChoiceChip chipFor(String label) => tester.widget<ChoiceChip>(
+      find.ancestor(of: find.text(label), matching: find.byType(ChoiceChip)),
+    );
+
+    expect(chipFor('No limit').selected, isTrue);
+
+    await tester.tap(find.text('5 min'));
+    await tester.pump();
+    expect(chipFor('5 min').selected, isTrue);
+    expect(chipFor('No limit').selected, isFalse);
+
+    await tester.tap(find.text('No limit'));
+    await tester.pump();
+    expect(chipFor('No limit').selected, isTrue);
+    expect(chipFor('5 min').selected, isFalse);
   });
 
   testWidgets('explains the 100 Hz motion sickness note', (tester) async {

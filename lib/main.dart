@@ -5883,6 +5883,13 @@ const List<double> tonePresetFrequencies = [
   10000,
   20000,
 ];
+const List<Duration?> toneLimitOptions = [
+  null,
+  Duration(minutes: 1),
+  Duration(minutes: 5),
+  Duration(minutes: 10),
+  Duration(minutes: 30),
+];
 
 double clampToneFrequency(double hz) {
   if (!hz.isFinite) return 440;
@@ -5908,6 +5915,10 @@ String formatToneNumber(double hz) {
 }
 
 String formatToneFrequency(double hz) => '${formatToneNumber(hz)} Hz';
+
+String toneLimitLabel(BuildContext context, Duration? limit) => limit == null
+    ? tr(context, 'No limit', '不限时')
+    : tr(context, '${limit.inMinutes} min', '${limit.inMinutes} 分钟');
 
 ({String name, int octave, int cents})? toneNoteForFrequency(double hz) {
   if (!hz.isFinite || hz <= 0) return null;
@@ -5940,6 +5951,12 @@ String formatToneNote(({String name, int octave, int cents}) note) {
       ? '0'
       : '${note.cents > 0 ? '+' : ''}${note.cents}';
   return '${note.name}${note.octave} $cents ct';
+}
+
+String formatCountdown(Duration remaining) {
+  final seconds = remaining.isNegative ? 0 : remaining.inSeconds;
+  final minutes = seconds ~/ 60;
+  return '$minutes:${(seconds % 60).toString().padLeft(2, '0')}';
 }
 
 double tonePeriodMilliseconds(double hz) => 1000 / clampToneFrequency(hz);
@@ -6012,6 +6029,32 @@ class _ToneSynth {
     } catch (_) {
       // Ignore teardown errors when the engine is no longer available.
     }
+  }
+}
+
+class _PlaybackChannel {
+  static const _channel = MethodChannel('pockito/background-audio');
+
+  static Future<void> start({
+    required String title,
+    required String text,
+  }) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('start', {
+        'title': title,
+        'text': text,
+      });
+    } catch (_) {
+      // Background playback is an enhancement; foreground audio still works.
+    }
+  }
+
+  static Future<void> stop() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<void>('stop');
+    } catch (_) {}
   }
 }
 
@@ -6094,42 +6137,37 @@ class ToneGeneratorScreen extends StatefulWidget {
   State<ToneGeneratorScreen> createState() => _ToneGeneratorScreenState();
 }
 
-class _ToneGeneratorScreenState extends State<ToneGeneratorScreen>
-    with WidgetsBindingObserver {
+class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
   static const _defaultFrequency = 440.0;
   final _synth = _ToneSynth();
   final _frequencyController = TextEditingController(text: '440');
   double _frequency = _defaultFrequency;
   double _volume = 0.3;
   ToneWaveform _waveform = ToneWaveform.sine;
+  Duration? _limit;
+  DateTime? _endsAt;
+  Timer? _limitTimer;
   bool _playing = false;
   bool _starting = false;
   String? _error;
   String? _inputError;
   int _session = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
+  Duration? get _remaining {
+    final endsAt = _endsAt;
+    if (endsAt == null) return null;
+    final remaining = endsAt.difference(DateTime.now());
+    return remaining.isNegative ? Duration.zero : remaining;
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
+    _limitTimer?.cancel();
     _session++;
     unawaited(_synth.dispose());
+    unawaited(_PlaybackChannel.stop());
     _frequencyController.dispose();
     super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden) {
-      _stop();
-    }
   }
 
   Future<void> _start() async {
@@ -6152,7 +6190,18 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen>
         await _synth.dispose();
         return;
       }
+      _beginCountdown();
       setState(() => _playing = true);
+      unawaited(
+        _PlaybackChannel.start(
+          title: tr(context, 'Frequency generator', '频率发生器'),
+          text: tr(
+            context,
+            'Playing ${formatToneFrequency(_frequency)}',
+            '正在播放 ${formatToneFrequency(_frequency)}',
+          ),
+        ),
+      );
     } catch (error) {
       if (!mounted || session != _session) return;
       setState(() {
@@ -6169,9 +6218,46 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen>
 
   void _stop() {
     _session++;
+    _limitTimer?.cancel();
+    _limitTimer = null;
+    _endsAt = null;
+    unawaited(_PlaybackChannel.stop());
     _synth.stop();
     if (!mounted) return;
     setState(() => _playing = false);
+  }
+
+  void _setLimit(Duration? limit) {
+    _limitTimer?.cancel();
+    _limitTimer = null;
+    setState(() {
+      _limit = limit;
+      _endsAt = null;
+      if (_playing) _beginCountdown();
+    });
+  }
+
+  void _beginCountdown() {
+    _limitTimer?.cancel();
+    _limitTimer = null;
+    final limit = _limit;
+    if (limit == null) {
+      _endsAt = null;
+      return;
+    }
+    _endsAt = DateTime.now().add(limit);
+    _limitTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final remaining = _remaining;
+      if (remaining == null || remaining <= Duration.zero) {
+        _stop();
+        return;
+      }
+      setState(() {});
+    });
   }
 
   void _applyFrequency(double value, {bool syncField = true}) {
@@ -6287,6 +6373,7 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen>
     final note = toneNoteForFrequency(_frequency);
     final period = tonePeriodMilliseconds(_frequency);
     final wavelength = toneWavelengthCentimeters(_frequency);
+    final remaining = _remaining;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -6363,6 +6450,23 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen>
                 ),
               ),
             ),
+            if (_playing && _limit != null && remaining != null) ...[
+              const SizedBox(height: 12),
+              LinearProgressIndicator(
+                value: (remaining.inMilliseconds / _limit!.inMilliseconds)
+                    .clamp(0.0, 1.0),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                tr(
+                  context,
+                  'Stops in ${formatCountdown(remaining)}',
+                  '剩余 ${formatCountdown(remaining)}',
+                ),
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(
@@ -6517,6 +6621,66 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen>
     );
   }
 
+  Widget _playbackTimeCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.timer_outlined, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  tr(context, 'Playback time', '播放时间'),
+                  style: theme.textTheme.titleMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final option in toneLimitOptions)
+                  ChoiceChip(
+                    label: Text(toneLimitLabel(context, option)),
+                    selected: _limit == option,
+                    onSelected: (_) => _setLimit(option),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.headphones_outlined,
+                  size: 18,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    tr(
+                      context,
+                      'Audio keeps playing when you switch apps or lock the screen. On Android a playback notification keeps it alive.',
+                      '切换应用或锁屏后，音频会继续播放。Android 会显示一条播放通知以保持运行。',
+                    ),
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _volumeCard(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
@@ -6581,6 +6745,8 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen>
             _frequencyCard(context),
             const SizedBox(height: 16),
             _waveformCard(context),
+            const SizedBox(height: 16),
+            _playbackTimeCard(context),
             const SizedBox(height: 16),
             _volumeCard(context),
           ],
