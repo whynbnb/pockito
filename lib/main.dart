@@ -8901,6 +8901,22 @@ class _SpeakerCleanerScreenState extends State<SpeakerCleanerScreen> {
   );
 }
 
+enum ClockLayout { auto, portrait, landscape }
+
+extension ClockLayoutDetails on ClockLayout {
+  String get englishName => switch (this) {
+    ClockLayout.auto => 'Auto',
+    ClockLayout.portrait => 'Portrait',
+    ClockLayout.landscape => 'Landscape',
+  };
+
+  String get chineseName => switch (this) {
+    ClockLayout.auto => '自动',
+    ClockLayout.portrait => '竖屏',
+    ClockLayout.landscape => '横屏',
+  };
+}
+
 enum ClockFace { analog, flip, binary, big, segment }
 
 extension ClockFaceDetails on ClockFace {
@@ -8958,6 +8974,7 @@ class ClockSettings {
   ClockSettings();
 
   bool loop = false;
+  ClockLayout layout = ClockLayout.auto;
   bool? use24Hour;
   double analogScale = 1;
   bool analogShowDigital = true;
@@ -8985,6 +9002,7 @@ class ClockSettings {
 
   void resetGeneral() {
     loop = false;
+    layout = ClockLayout.auto;
     use24Hour = null;
   }
 
@@ -9037,6 +9055,7 @@ class ClockSettings {
 
   Map<String, dynamic> toJson() => {
     'loop': loop,
+    'layout': layout.name,
     'use24': use24Hour,
     'analogScale': analogScale,
     'analogDigital': analogShowDigital,
@@ -9066,6 +9085,11 @@ class ClockSettings {
   factory ClockSettings.fromJson(Map<String, dynamic> json) {
     final settings = ClockSettings();
     settings.loop = json['loop'] == true;
+    settings.layout = switch (json['layout']) {
+      'portrait' => ClockLayout.portrait,
+      'landscape' => ClockLayout.landscape,
+      _ => ClockLayout.auto,
+    };
     final use24 = json['use24'];
     if (use24 is bool) settings.use24Hour = use24;
     settings.analogScale = _readScale(json['analogScale']);
@@ -9174,6 +9198,13 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
       _settings.use24Hour ??
       (MediaQuery.of(context).alwaysUse24HourFormat ||
           Localizations.localeOf(context).languageCode == 'zh');
+
+  bool _usePortrait(BuildContext context) => switch (_settings.layout) {
+    ClockLayout.portrait => true,
+    ClockLayout.landscape => false,
+    ClockLayout.auto =>
+      MediaQuery.of(context).orientation == Orientation.portrait,
+  };
 
   @override
   void initState() {
@@ -9599,6 +9630,25 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
+          ),
+          const SizedBox(height: 12),
+          Text(tr(context, 'Layout', '布局'), style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 8),
+          SegmentedButton<ClockLayout>(
+            key: const ValueKey('clock-layout'),
+            segments: [
+              for (final layout in ClockLayout.values)
+                ButtonSegment(
+                  value: layout,
+                  label: Text(
+                    tr(context, layout.englishName, layout.chineseName),
+                  ),
+                ),
+            ],
+            selected: {_settings.layout},
+            onSelectionChanged: (selection) {
+              apply(() => _settings.layout = selection.first);
+            },
           ),
         ]),
         const Divider(height: 32),
@@ -10222,59 +10272,70 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildFace(ClockFace face, bool use24Hour) {
+  Widget _buildFace(ClockFace face, bool use24Hour, bool portrait) {
     return _ClockPageBackground(
-      child: switch (face) {
-        ClockFace.analog => _AnalogClockPage(
-          now: _now,
-          use24Hour: use24Hour,
-          scale: _settings.analogScale,
-          showDigital: _settings.analogShowDigital,
-          showDate: _settings.analogShowDate,
-          showMinuteHand: _settings.analogShowMinuteHand,
-          showSecondHand: _settings.analogShowSecondHand,
+      child: KeyedSubtree(
+        key: ValueKey(
+          'clock-layout-${face.name}-${portrait ? 'portrait' : 'landscape'}',
         ),
-        ClockFace.flip => _FlipClockPage(
-          now: _now,
-          use24Hour: use24Hour,
-          scale: _settings.flipScale,
-          showSeconds: _settings.flipShowSeconds,
-          showDate: _settings.flipShowDate,
-        ),
-        ClockFace.binary => _BinaryClockPage(
-          now: _now,
-          use24Hour: use24Hour,
-          scale: _settings.binaryScale,
-          showSeconds: _settings.binaryShowSeconds,
-          showLabels: _settings.binaryShowLabels,
-          showDigital: _settings.binaryShowDigital,
-          showDate: _settings.binaryShowDate,
-        ),
-        ClockFace.big => _BigDigitsClockPage(
-          now: _now,
-          use24Hour: use24Hour,
-          showDate: _settings.bigShowDate,
-          showSeconds: _settings.bigShowSeconds,
-        ),
-        ClockFace.segment => _SegmentClockPage(
-          now: _now,
-          use24Hour: use24Hour,
-          scale: _settings.segmentScale,
-          showSeconds: _settings.segmentShowSeconds,
-          showDate: _settings.segmentShowDate,
-          color: Color(_settings.segmentColor),
-          showBorder: _settings.segmentShowBorder,
-          borderWidth: _settings.segmentBorderWidth,
-          padding: _settings.segmentPadding,
-          margin: _settings.segmentMargin,
-        ),
-      },
+        child: switch (face) {
+          ClockFace.analog => _AnalogClockPage(
+            now: _now,
+            use24Hour: use24Hour,
+            portrait: portrait,
+            scale: _settings.analogScale,
+            showDigital: _settings.analogShowDigital,
+            showDate: _settings.analogShowDate,
+            showMinuteHand: _settings.analogShowMinuteHand,
+            showSecondHand: _settings.analogShowSecondHand,
+          ),
+          ClockFace.flip => _FlipClockPage(
+            now: _now,
+            use24Hour: use24Hour,
+            portrait: portrait,
+            scale: _settings.flipScale,
+            showSeconds: _settings.flipShowSeconds,
+            showDate: _settings.flipShowDate,
+          ),
+          ClockFace.binary => _BinaryClockPage(
+            now: _now,
+            use24Hour: use24Hour,
+            portrait: portrait,
+            scale: _settings.binaryScale,
+            showSeconds: _settings.binaryShowSeconds,
+            showLabels: _settings.binaryShowLabels,
+            showDigital: _settings.binaryShowDigital,
+            showDate: _settings.binaryShowDate,
+          ),
+          ClockFace.big => _BigDigitsClockPage(
+            now: _now,
+            use24Hour: use24Hour,
+            portrait: portrait,
+            showDate: _settings.bigShowDate,
+            showSeconds: _settings.bigShowSeconds,
+          ),
+          ClockFace.segment => _SegmentClockPage(
+            now: _now,
+            use24Hour: use24Hour,
+            portrait: portrait,
+            scale: _settings.segmentScale,
+            showSeconds: _settings.segmentShowSeconds,
+            showDate: _settings.segmentShowDate,
+            color: Color(_settings.segmentColor),
+            showBorder: _settings.segmentShowBorder,
+            borderWidth: _settings.segmentBorderWidth,
+            padding: _settings.segmentPadding,
+            margin: _settings.segmentMargin,
+          ),
+        },
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final use24Hour = _resolveUse24Hour(context);
+    final portrait = _usePortrait(context);
     final pages = PageView.builder(
       key: ValueKey('clock-pages-${_settings.loop ? 'loop' : 'finite'}'),
       controller: _pageController,
@@ -10285,7 +10346,7 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
       },
       itemBuilder: (context, page) {
         final face = _faces[_settings.loop ? page % _faces.length : page];
-        return _buildFace(face, use24Hour);
+        return _buildFace(face, use24Hour, portrait);
       },
     );
     final body = _fullscreen
@@ -10384,6 +10445,7 @@ class _AnalogClockPage extends StatelessWidget {
   const _AnalogClockPage({
     required this.now,
     required this.use24Hour,
+    required this.portrait,
     required this.scale,
     required this.showDigital,
     required this.showDate,
@@ -10393,6 +10455,7 @@ class _AnalogClockPage extends StatelessWidget {
 
   final DateTime now;
   final bool use24Hour;
+  final bool portrait;
   final double scale;
   final bool showDigital;
   final bool showDate;
@@ -10405,48 +10468,99 @@ class _AnalogClockPage extends StatelessWidget {
     final scheme = theme.colorScheme;
     final digits = clockDigitsFor(now, use24Hour: use24Hour);
     final date = MaterialLocalizations.of(context).formatMediumDate(now);
+    final digital =
+        '${digits.hour}:${digits.minute}:${digits.second}'
+        '${digits.period.isNotEmpty ? ' ${digits.period}' : ''}';
+
+    Widget face(double size) => SizedBox(
+      key: const ValueKey('analog-face'),
+      width: size,
+      height: size,
+      child: CustomPaint(
+        key: ValueKey(
+          'analog-hands-'
+          '${showMinuteHand ? 1 : 0}${showSecondHand ? 1 : 0}',
+        ),
+        painter: _AnalogClockPainter(
+          now: now,
+          showMinuteHand: showMinuteHand,
+          showSecondHand: showSecondHand,
+          faceColor: scheme.surfaceContainerHigh,
+          rimColor: scheme.outlineVariant,
+          tickColor: scheme.onSurfaceVariant,
+          numberColor: scheme.onSurfaceVariant,
+          hourColor: scheme.onSurface,
+          minuteColor: scheme.onSurface,
+          secondColor: scheme.primary,
+        ),
+      ),
+    );
+
     return LayoutBuilder(
       builder: (context, constraints) {
+        if (!portrait && (showDigital || showDate)) {
+          final fit = max(
+            60.0,
+            min(constraints.maxWidth * 0.44, constraints.maxHeight - 24),
+          );
+          final faceSize = (fit * 0.9 * scale).clamp(60.0, fit);
+          return Row(
+            children: [
+              Expanded(child: Center(child: face(faceSize))),
+              Expanded(
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (showDigital)
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            digital,
+                            key: const ValueKey('analog-digital'),
+                            style: theme.textTheme.displaySmall?.copyWith(
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (showDate)
+                        Padding(
+                          padding: EdgeInsets.only(top: showDigital ? 8 : 0),
+                          child: Text(
+                            date,
+                            key: const ValueKey('analog-date'),
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+
         final reserve =
             24.0 + (showDigital ? 30.0 : 0.0) + (showDate ? 24.0 : 0.0);
         final fit = max(
           60.0,
           min(constraints.maxWidth, constraints.maxHeight - reserve),
         );
-        final base = fit * 0.88;
-        final faceSize = (base * scale).clamp(60.0, fit);
+        final faceSize = (fit * 0.88 * scale).clamp(60.0, fit);
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                key: const ValueKey('analog-face'),
-                width: faceSize,
-                height: faceSize,
-                child: CustomPaint(
-                  key: ValueKey(
-                    'analog-hands-'
-                    '${showMinuteHand ? 1 : 0}${showSecondHand ? 1 : 0}',
-                  ),
-                  painter: _AnalogClockPainter(
-                    now: now,
-                    showMinuteHand: showMinuteHand,
-                    showSecondHand: showSecondHand,
-                    faceColor: scheme.surfaceContainerHigh,
-                    rimColor: scheme.outlineVariant,
-                    tickColor: scheme.onSurfaceVariant,
-                    numberColor: scheme.onSurfaceVariant,
-                    hourColor: scheme.onSurface,
-                    minuteColor: scheme.onSurface,
-                    secondColor: scheme.primary,
-                  ),
-                ),
-              ),
+              face(faceSize),
               if (showDigital || showDate) const SizedBox(height: 16),
               if (showDigital)
                 Text(
-                  '${digits.hour}:${digits.minute}:${digits.second}'
-                  '${digits.period.isNotEmpty ? ' ${digits.period}' : ''}',
+                  digital,
                   key: const ValueKey('analog-digital'),
                   style: theme.textTheme.titleLarge?.copyWith(
                     fontFeatures: const [FontFeature.tabularFigures()],
@@ -10657,6 +10771,7 @@ class _FlipClockPage extends StatelessWidget {
   const _FlipClockPage({
     required this.now,
     required this.use24Hour,
+    required this.portrait,
     required this.scale,
     required this.showSeconds,
     required this.showDate,
@@ -10664,6 +10779,7 @@ class _FlipClockPage extends StatelessWidget {
 
   final DateTime now;
   final bool use24Hour;
+  final bool portrait;
   final double scale;
   final bool showSeconds;
   final bool showDate;
@@ -10681,112 +10797,171 @@ class _FlipClockPage extends StatelessWidget {
             (showSeconds ? 24.0 : 0.0) +
             (showDate ? 24.0 : 0.0) +
             (digits.period.isNotEmpty ? 24.0 : 0.0);
-        final maxCardByWidth = (constraints.maxWidth - 40) / 4.18;
-        final maxCardByHeight = (constraints.maxHeight - reserve) / 1.36;
-        final fit = max(24.0, min(maxCardByWidth, maxCardByHeight));
-        final base = min(
-          (constraints.maxWidth - 32) / 4.8,
-          constraints.maxHeight * 0.28,
-        );
-        final cardWidth = (base * scale).clamp(24.0, fit);
+        final double cardWidth;
+        if (portrait) {
+          final maxCardByWidth = (constraints.maxWidth - 48) / 2.08;
+          final maxCardByHeight = (constraints.maxHeight - reserve - 60) / 2.87;
+          final fit = max(24.0, min(maxCardByWidth, maxCardByHeight));
+          final base = min(
+            (constraints.maxWidth - 32) / 2.4,
+            constraints.maxHeight * 0.22,
+          );
+          cardWidth = (base * scale).clamp(24.0, fit);
+        } else {
+          final maxCardByWidth = (constraints.maxWidth - 40) / 4.18;
+          final maxCardByHeight = (constraints.maxHeight - reserve) / 1.36;
+          final fit = max(24.0, min(maxCardByWidth, maxCardByHeight));
+          final base = min(
+            (constraints.maxWidth - 32) / 4.8,
+            constraints.maxHeight * 0.28,
+          );
+          cardWidth = (base * scale).clamp(24.0, fit);
+        }
         final cardHeight = cardWidth * 1.36;
-        final colonSize = cardHeight * 0.42;
+        final colonSize = cardHeight * (portrait ? 0.34 : 0.42);
         final cardColor = scheme.surfaceContainerHighest;
         final dividerColor = scheme.outlineVariant;
-        return Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                key: const ValueKey('flip-cards'),
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _FlipCard(
-                    digit: digits.hour[0],
-                    width: cardWidth,
-                    height: cardHeight,
-                    background: cardColor,
-                    foreground: scheme.onSurface,
-                    divider: dividerColor,
-                  ),
-                  const SizedBox(width: 8),
-                  _FlipCard(
-                    digit: digits.hour[1],
-                    width: cardWidth,
-                    height: cardHeight,
-                    background: cardColor,
-                    foreground: scheme.onSurface,
-                    divider: dividerColor,
-                  ),
-                  SizedBox(
-                    width: cardWidth * 0.18,
-                    child: Center(
-                      child: Opacity(
-                        opacity: now.second.isEven ? 1 : 0.25,
-                        child: Text(
-                          ':',
-                          style: TextStyle(
-                            fontSize: colonSize,
-                            height: 1,
-                            color: scheme.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+
+        Widget card(String value) => _FlipCard(
+          digit: value,
+          width: cardWidth,
+          height: cardHeight,
+          background: cardColor,
+          foreground: scheme.onSurface,
+          divider: dividerColor,
+        );
+
+        Widget colon({required bool horizontal}) => horizontal
+            ? SizedBox(
+                width: cardWidth * 0.18,
+                child: Center(
+                  child: Opacity(
+                    opacity: now.second.isEven ? 1 : 0.25,
+                    child: Text(
+                      ':',
+                      style: TextStyle(
+                        fontSize: colonSize,
+                        height: 1,
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
-                  _FlipCard(
-                    digit: digits.minute[0],
-                    width: cardWidth,
-                    height: cardHeight,
-                    background: cardColor,
-                    foreground: scheme.onSurface,
-                    divider: dividerColor,
-                  ),
-                  const SizedBox(width: 8),
-                  _FlipCard(
-                    digit: digits.minute[1],
-                    width: cardWidth,
-                    height: cardHeight,
-                    background: cardColor,
-                    foreground: scheme.onSurface,
-                    divider: dividerColor,
-                  ),
-                ],
-              ),
-              if (showSeconds || showDate || digits.period.isNotEmpty)
-                const SizedBox(height: 18),
-              if (showSeconds)
-                Text(
-                  '${digits.second} s',
-                  key: const ValueKey('flip-seconds'),
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: scheme.primary,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
                 ),
-              if (showDate)
-                Padding(
-                  padding: EdgeInsets.only(top: showSeconds ? 4 : 0),
-                  child: Text(
-                    date,
-                    key: const ValueKey('flip-date'),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: scheme.onSurfaceVariant,
+              )
+            : SizedBox(
+                height: cardHeight * 0.22,
+                child: Center(
+                  child: Opacity(
+                    opacity: now.second.isEven ? 1 : 0.25,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: cardHeight * 0.045,
+                          height: cardHeight * 0.045,
+                          decoration: BoxDecoration(
+                            color: scheme.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        SizedBox(height: cardHeight * 0.05),
+                        Container(
+                          width: cardHeight * 0.045,
+                          height: cardHeight * 0.045,
+                          decoration: BoxDecoration(
+                            color: scheme.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              if (digits.period.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  digits.period,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: scheme.primary,
-                    letterSpacing: 2,
-                  ),
+              );
+
+        Widget cards() {
+          if (portrait) {
+            return Column(
+              key: const ValueKey('flip-cards'),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    card(digits.hour[0]),
+                    const SizedBox(width: 8),
+                    card(digits.hour[1]),
+                  ],
+                ),
+                colon(horizontal: false),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    card(digits.minute[0]),
+                    const SizedBox(width: 8),
+                    card(digits.minute[1]),
+                  ],
                 ),
               ],
+            );
+          }
+          return Row(
+            key: const ValueKey('flip-cards'),
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              card(digits.hour[0]),
+              const SizedBox(width: 8),
+              card(digits.hour[1]),
+              colon(horizontal: true),
+              card(digits.minute[0]),
+              const SizedBox(width: 8),
+              card(digits.minute[1]),
             ],
+          );
+        }
+
+        return Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                cards(),
+                if (showSeconds || showDate || digits.period.isNotEmpty)
+                  const SizedBox(height: 18),
+                if (showSeconds)
+                  Text(
+                    '${digits.second} s',
+                    key: const ValueKey('flip-seconds'),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: scheme.primary,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                if (showDate)
+                  Padding(
+                    padding: EdgeInsets.only(top: showSeconds ? 4 : 0),
+                    child: Text(
+                      date,
+                      key: const ValueKey('flip-date'),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                if (digits.period.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    digits.period,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: scheme.primary,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         );
       },
@@ -10885,6 +11060,7 @@ class _BinaryClockPage extends StatelessWidget {
   const _BinaryClockPage({
     required this.now,
     required this.use24Hour,
+    required this.portrait,
     required this.scale,
     required this.showSeconds,
     required this.showLabels,
@@ -10894,6 +11070,7 @@ class _BinaryClockPage extends StatelessWidget {
 
   final DateTime now;
   final bool use24Hour;
+  final bool portrait;
   final double scale;
   final bool showSeconds;
   final bool showLabels;
@@ -10908,29 +11085,50 @@ class _BinaryClockPage extends StatelessWidget {
     final clock = clockDigitsFor(now, use24Hour: use24Hour);
     final date = MaterialLocalizations.of(context).formatMediumDate(now);
     const weights = [8, 4, 2, 1];
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        final reserve =
-            24.0 +
-            (showLabels ? 40.0 : 0.0) +
-            (showDigital ? 52.0 : 0.0) +
-            (showDate ? 24.0 : 0.0);
-        final maxUnitByHeight = max(
-          10.0,
-          (constraints.maxHeight - reserve) / 5.65,
-        );
-        final columnCount = showSeconds ? 6 : 4;
-        final separatorCount = showSeconds ? 2 : 1;
-        final legendUnits = showLabels ? 1.78 : 0.0;
-        final widthUnits =
-            columnCount +
-            (columnCount - 1) * 0.55 +
-            separatorCount * 1.4 * 0.55 +
-            legendUnits;
-        final maxUnitByWidth = constraints.maxWidth / (widthUnits + 0.4);
-        final fit = max(10.0, min(maxUnitByWidth, maxUnitByHeight));
-        final upper = max(10.0, fit);
-        final unit = (fit * 0.85 * scale).clamp(10.0, upper);
+        final double unit;
+        if (portrait) {
+          final rowCount = showSeconds ? 2 : 1;
+          final reserve =
+              24.0 +
+              (showLabels ? 40.0 : 0.0) +
+              (showDigital ? 52.0 : 0.0) +
+              (showDate ? 24.0 : 0.0) +
+              (showSeconds ? 40.0 : 0.0);
+          final maxUnitByHeight = max(
+            10.0,
+            (constraints.maxHeight - reserve) / (5.65 * rowCount),
+          );
+          final maxUnitByWidth =
+              constraints.maxWidth / (showLabels ? 8.6 : 6.8);
+          final fit = max(10.0, min(maxUnitByWidth, maxUnitByHeight));
+          final upper = max(10.0, fit);
+          unit = (fit * 0.85 * scale).clamp(10.0, upper);
+        } else {
+          final columnCount = showSeconds ? 6 : 4;
+          final separatorCount = showSeconds ? 2 : 1;
+          final legendUnits = showLabels ? 1.78 : 0.0;
+          final widthUnits =
+              columnCount +
+              (columnCount - 1) * 0.55 +
+              separatorCount * 1.4 * 0.55 +
+              legendUnits;
+          final maxUnitByWidth = constraints.maxWidth / (widthUnits + 0.4);
+          final reserve =
+              24.0 +
+              (showLabels ? 40.0 : 0.0) +
+              (showDigital ? 52.0 : 0.0) +
+              (showDate ? 24.0 : 0.0);
+          final maxUnitByHeight = max(
+            10.0,
+            (constraints.maxHeight - reserve) / 5.65,
+          );
+          final fit = max(10.0, min(maxUnitByWidth, maxUnitByHeight));
+          final upper = max(10.0, fit);
+          unit = (fit * 0.85 * scale).clamp(10.0, upper);
+        }
         final gap = unit * 0.55;
 
         Widget digitColumn(int index) => Column(
@@ -10987,93 +11185,154 @@ class _BinaryClockPage extends StatelessWidget {
           ),
         );
 
-        return Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (showLabels)
-                Text(
-                  tr(context, 'BINARY', '二进制'),
-                  key: const ValueKey('binary-label-title'),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.primary,
-                    letterSpacing: 4,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              if (showLabels) const SizedBox(height: 18),
-              Row(
-                key: const ValueKey('binary-matrix'),
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (showLabels)
-                    Column(
-                      key: const ValueKey('binary-legend'),
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (var row = 0; row < 4; row++) ...[
-                          SizedBox(
-                            width: unit * 0.9,
-                            height: unit,
-                            child: Center(
-                              child: Text(
-                                '${weights[row]}',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (row < 3) SizedBox(height: gap),
-                        ],
-                      ],
-                    ),
-                  if (showLabels) SizedBox(width: gap * 1.6),
-                  digitColumn(0),
-                  SizedBox(width: gap),
-                  digitColumn(1),
-                  separator(),
-                  digitColumn(2),
-                  SizedBox(width: gap),
-                  digitColumn(3),
-                  if (showSeconds)
-                    Row(
-                      key: const ValueKey('binary-seconds'),
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        separator(),
-                        digitColumn(4),
-                        SizedBox(width: gap),
-                        digitColumn(5),
-                      ],
-                    ),
-                ],
-              ),
-              if (showDigital || showDate) const SizedBox(height: 22),
-              if (showDigital)
-                Text(
-                  '${clock.hour}:${clock.minute}'
-                  '${showSeconds ? ':${clock.second}' : ''}'
-                  '${clock.period.isNotEmpty ? ' ${clock.period}' : ''}',
-                  key: const ValueKey('binary-digital'),
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              if (showDate)
-                Padding(
-                  padding: EdgeInsets.only(top: showDigital ? 4 : 0),
+        Widget legend() => Column(
+          key: const ValueKey('binary-legend'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var row = 0; row < 4; row++) ...[
+              SizedBox(
+                width: unit * 0.9,
+                height: unit,
+                child: Center(
                   child: Text(
-                    date,
-                    key: const ValueKey('binary-date'),
-                    style: theme.textTheme.bodySmall?.copyWith(
+                    '${weights[row]}',
+                    style: theme.textTheme.labelSmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
                 ),
+              ),
+              if (row < 3) SizedBox(height: gap),
             ],
+          ],
+        );
+
+        Widget title() => Text(
+          tr(context, 'BINARY', '二进制'),
+          key: const ValueKey('binary-label-title'),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: scheme.primary,
+            letterSpacing: 4,
+            fontWeight: FontWeight.w600,
+          ),
+        );
+
+        Widget footer() => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showDigital || showDate) const SizedBox(height: 22),
+            if (showDigital)
+              Text(
+                '${clock.hour}:${clock.minute}'
+                '${showSeconds ? ':${clock.second}' : ''}'
+                '${clock.period.isNotEmpty ? ' ${clock.period}' : ''}',
+                key: const ValueKey('binary-digital'),
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            if (showDate)
+              Padding(
+                padding: EdgeInsets.only(top: showDigital ? 4 : 0),
+                child: Text(
+                  date,
+                  key: const ValueKey('binary-date'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+          ],
+        );
+
+        if (portrait) {
+          return Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showLabels) ...[title(), const SizedBox(height: 18)],
+                  Column(
+                    key: const ValueKey('binary-matrix'),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (showLabels) ...[
+                            legend(),
+                            SizedBox(width: gap * 1.6),
+                          ],
+                          digitColumn(0),
+                          SizedBox(width: gap),
+                          digitColumn(1),
+                          separator(),
+                          digitColumn(2),
+                          SizedBox(width: gap),
+                          digitColumn(3),
+                        ],
+                      ),
+                      if (showSeconds) ...[
+                        const SizedBox(height: 18),
+                        Row(
+                          key: const ValueKey('binary-seconds'),
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            digitColumn(4),
+                            SizedBox(width: gap),
+                            digitColumn(5),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                  footer(),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (showLabels) ...[title(), const SizedBox(height: 18)],
+                Row(
+                  key: const ValueKey('binary-matrix'),
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (showLabels) ...[legend(), SizedBox(width: gap * 1.6)],
+                    digitColumn(0),
+                    SizedBox(width: gap),
+                    digitColumn(1),
+                    separator(),
+                    digitColumn(2),
+                    SizedBox(width: gap),
+                    digitColumn(3),
+                    if (showSeconds)
+                      Row(
+                        key: const ValueKey('binary-seconds'),
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          separator(),
+                          digitColumn(4),
+                          SizedBox(width: gap),
+                          digitColumn(5),
+                        ],
+                      ),
+                  ],
+                ),
+                footer(),
+              ],
+            ),
           ),
         );
       },
@@ -11126,12 +11385,14 @@ class _BigDigitsClockPage extends StatelessWidget {
   const _BigDigitsClockPage({
     required this.now,
     required this.use24Hour,
+    required this.portrait,
     required this.showDate,
     required this.showSeconds,
   });
 
   final DateTime now;
   final bool use24Hour;
+  final bool portrait;
   final bool showDate;
   final bool showSeconds;
 
@@ -11149,18 +11410,94 @@ class _BigDigitsClockPage extends StatelessWidget {
       color: scheme.onSurface,
       fontFeatures: const [FontFeature.tabularFigures()],
     );
+
+    Widget dateLine() => Text(
+      date,
+      key: const ValueKey('big-date'),
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: scheme.onSurfaceVariant,
+      ),
+    );
+
+    Widget secondsLine() => Text(
+      '${digits.second} s'
+      '${digits.period.isNotEmpty ? ' · ${digits.period}' : ''}',
+      key: const ValueKey('big-seconds'),
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: scheme.onSurfaceVariant,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+
+    if (portrait) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Column(
+          children: [
+            if (showDate) dateLine(),
+            Expanded(
+              child: Column(
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: FittedBox(
+                        fit: BoxFit.contain,
+                        child: Text(digits.hour, style: style),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    height: 32,
+                    child: Center(
+                      child: Opacity(
+                        opacity: now.second.isEven ? 1 : 0.2,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: scheme.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: scheme.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: FittedBox(
+                        fit: BoxFit.contain,
+                        child: Text(digits.minute, style: style),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (showSeconds) secondsLine(),
+          ],
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Column(
         children: [
-          if (showDate)
-            Text(
-              date,
-              key: const ValueKey('big-date'),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
+          if (showDate) dateLine(),
           Expanded(
             child: Center(
               child: FittedBox(
@@ -11185,16 +11522,7 @@ class _BigDigitsClockPage extends StatelessWidget {
               ),
             ),
           ),
-          if (showSeconds)
-            Text(
-              '${digits.second} s'
-              '${digits.period.isNotEmpty ? ' · ${digits.period}' : ''}',
-              key: const ValueKey('big-seconds'),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              ),
-            ),
+          if (showSeconds) secondsLine(),
         ],
       ),
     );
@@ -11221,6 +11549,7 @@ class _SegmentClockPage extends StatelessWidget {
   const _SegmentClockPage({
     required this.now,
     required this.use24Hour,
+    required this.portrait,
     required this.scale,
     required this.showSeconds,
     required this.showDate,
@@ -11233,6 +11562,7 @@ class _SegmentClockPage extends StatelessWidget {
 
   final DateTime now;
   final bool use24Hour;
+  final bool portrait;
   final double scale;
   final bool showSeconds;
   final bool showDate;
@@ -11250,27 +11580,54 @@ class _SegmentClockPage extends StatelessWidget {
     final onColor = color;
     final offColor = Color.lerp(_segmentPanelColor, onColor, 0.18)!;
     final textColor = Color.lerp(_segmentTextColor, onColor, 0.3)!;
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        final digitCount = showSeconds ? 6 : 4;
-        final colonCount = showSeconds ? 2 : 1;
-        final factor =
-            digitCount * 0.68 + (colonCount * 2 + 2) * 0.08 + colonCount * 0.26;
-        final widthRoom = max(
-          40.0,
-          (constraints.maxWidth - padding * 2 - margin * 2 - 24) / factor,
-        );
-        final heightRoom = max(
-          40.0,
-          constraints.maxHeight -
-              padding * 2 -
-              margin * 2 -
-              24 -
-              (period.isNotEmpty ? 24.0 : 0.0) -
-              (showDate ? 24.0 : 0.0),
-        );
-        final fit = min(widthRoom, heightRoom);
-        final digitHeight = (fit * 0.85 * scale).clamp(24.0, fit);
+        final double digitHeight;
+        if (portrait) {
+          final rows = showSeconds ? 3 : 2;
+          final colonRows = rows - 1;
+          final horizontalReserve = padding * 2 + margin * 2 + 24;
+          final verticalReserve =
+              padding * 2 +
+              margin * 2 +
+              (period.isNotEmpty ? 28.0 : 0.0) +
+              (showDate ? 40.0 : 0.0) +
+              16;
+          final widthRoom = max(
+            24.0,
+            (constraints.maxWidth - horizontalReserve) / 1.42,
+          );
+          final heightRoom = max(
+            24.0,
+            (constraints.maxHeight - verticalReserve) /
+                (rows + colonRows * 0.26),
+          );
+          final fit = min(widthRoom, heightRoom);
+          digitHeight = (fit * 0.85 * scale).clamp(24.0, fit);
+        } else {
+          final digitCount = showSeconds ? 6 : 4;
+          final colonCount = showSeconds ? 2 : 1;
+          final factor =
+              digitCount * 0.68 +
+              (colonCount * 2 + 2) * 0.08 +
+              colonCount * 0.26;
+          final widthRoom = max(
+            40.0,
+            (constraints.maxWidth - padding * 2 - margin * 2 - 24) / factor,
+          );
+          final heightRoom = max(
+            40.0,
+            constraints.maxHeight -
+                padding * 2 -
+                margin * 2 -
+                24 -
+                (period.isNotEmpty ? 24.0 : 0.0) -
+                (showDate ? 24.0 : 0.0),
+          );
+          final fit = min(widthRoom, heightRoom);
+          digitHeight = (fit * 0.85 * scale).clamp(24.0, fit);
+        }
         final digitWidth = digitHeight * 0.68;
         final colonWidth = digitHeight * 0.26;
         final gap = digitHeight * 0.06;
@@ -11284,13 +11641,80 @@ class _SegmentClockPage extends StatelessWidget {
           dotOn: dotOn,
         );
 
-        Widget colon() => _SegmentColon(
+        Widget colon({required bool compact}) => _SegmentColon(
           width: colonWidth,
-          height: digitHeight,
+          height: compact ? digitHeight * 0.26 : digitHeight,
+          dotRadius: compact ? digitHeight * 0.03 : null,
           on: now.second.isEven,
           onColor: onColor,
           offColor: offColor,
         );
+
+        Widget digitsRow(List<String> values, {bool lastDot = false}) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            digit(values[0]),
+            SizedBox(width: gap),
+            digit(values[1], dotOn: lastDot && now.second.isEven),
+          ],
+        );
+
+        final display = portrait
+            ? Column(
+                key: const ValueKey('segment-digits'),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  digitsRow([digits.hour[0], digits.hour[1]]),
+                  colon(compact: true),
+                  digitsRow([
+                    digits.minute[0],
+                    digits.minute[1],
+                  ], lastDot: !showSeconds),
+                  if (showSeconds) ...[
+                    colon(compact: true),
+                    Row(
+                      key: const ValueKey('segment-seconds'),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        digit(digits.second[0]),
+                        SizedBox(width: gap),
+                        digit(digits.second[1], dotOn: now.second.isEven),
+                      ],
+                    ),
+                  ],
+                ],
+              )
+            : Row(
+                key: const ValueKey('segment-digits'),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  digit(digits.hour[0]),
+                  SizedBox(width: gap),
+                  digit(digits.hour[1]),
+                  SizedBox(width: gap * 1.5),
+                  colon(compact: false),
+                  SizedBox(width: gap * 1.5),
+                  digit(digits.minute[0]),
+                  SizedBox(width: gap),
+                  digit(
+                    digits.minute[1],
+                    dotOn: !showSeconds && now.second.isEven,
+                  ),
+                  if (showSeconds)
+                    Row(
+                      key: const ValueKey('segment-seconds'),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(width: gap * 1.5),
+                        colon(compact: false),
+                        SizedBox(width: gap * 1.5),
+                        digit(digits.second[0]),
+                        SizedBox(width: gap),
+                        digit(digits.second[1], dotOn: now.second.isEven),
+                      ],
+                    ),
+                ],
+              );
 
         return Center(
           child: FittedBox(
@@ -11331,37 +11755,7 @@ class _SegmentClockPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                   ],
-                  Row(
-                    key: const ValueKey('segment-digits'),
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      digit(digits.hour[0]),
-                      SizedBox(width: gap),
-                      digit(digits.hour[1]),
-                      SizedBox(width: gap * 1.5),
-                      colon(),
-                      SizedBox(width: gap * 1.5),
-                      digit(digits.minute[0]),
-                      SizedBox(width: gap),
-                      digit(
-                        digits.minute[1],
-                        dotOn: !showSeconds && now.second.isEven,
-                      ),
-                      if (showSeconds)
-                        Row(
-                          key: const ValueKey('segment-seconds'),
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(width: gap * 1.5),
-                            colon(),
-                            SizedBox(width: gap * 1.5),
-                            digit(digits.second[0]),
-                            SizedBox(width: gap),
-                            digit(digits.second[1], dotOn: now.second.isEven),
-                          ],
-                        ),
-                    ],
-                  ),
+                  display,
                   if (showDate) ...[
                     const SizedBox(height: 16),
                     Text(
@@ -11557,6 +11951,7 @@ class _SegmentColon extends StatelessWidget {
     required this.on,
     required this.onColor,
     required this.offColor,
+    this.dotRadius,
   });
 
   final double width;
@@ -11564,6 +11959,7 @@ class _SegmentColon extends StatelessWidget {
   final bool on;
   final Color onColor;
   final Color offColor;
+  final double? dotRadius;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -11574,6 +11970,7 @@ class _SegmentColon extends StatelessWidget {
         on: on,
         onColor: onColor,
         offColor: offColor,
+        dotRadius: dotRadius,
       ),
     ),
   );
@@ -11584,15 +11981,17 @@ class _SegmentColonPainter extends CustomPainter {
     required this.on,
     required this.onColor,
     required this.offColor,
+    this.dotRadius,
   });
 
   final bool on;
   final Color onColor;
   final Color offColor;
+  final double? dotRadius;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final radius = size.height * 0.055;
+    final radius = dotRadius ?? size.height * 0.055;
     final x = size.width / 2;
     for (final y in [size.height * 0.36, size.height * 0.64]) {
       final center = Offset(x, y);
@@ -11617,7 +12016,8 @@ class _SegmentColonPainter extends CustomPainter {
   bool shouldRepaint(_SegmentColonPainter oldDelegate) =>
       oldDelegate.on != on ||
       oldDelegate.onColor != onColor ||
-      oldDelegate.offColor != offColor;
+      oldDelegate.offColor != offColor ||
+      oldDelegate.dotRadius != dotRadius;
 }
 
 class VaultNote {

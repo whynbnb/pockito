@@ -116,6 +116,7 @@ void main() {
   test('clock settings round-trip and clamp invalid values', () {
     final settings = ClockSettings()
       ..loop = true
+      ..layout = ClockLayout.landscape
       ..use24Hour = false
       ..analogScale = 0.85
       ..analogShowDigital = false
@@ -154,6 +155,7 @@ void main() {
       'segmentColor': -1,
       'segmentPadding': 100,
       'segmentMargin': -5,
+      'layout': 'diagonal',
     });
     expect(clamped.analogScale, 1.2);
     expect(clamped.flipScale, 0.7);
@@ -163,11 +165,13 @@ void main() {
     expect(clamped.segmentColor, defaultSegmentColor);
     expect(clamped.segmentPadding, 48);
     expect(clamped.segmentMargin, 0);
+    expect(clamped.layout, ClockLayout.auto);
   });
 
   test('clock settings reset sections independently', () {
     final settings = ClockSettings()
       ..loop = true
+      ..layout = ClockLayout.portrait
       ..use24Hour = true
       ..analogScale = 1.2
       ..analogShowDigital = false
@@ -230,10 +234,12 @@ void main() {
     settings.segmentShowSeconds = false;
 
     settings.loop = true;
+    settings.layout = ClockLayout.landscape;
     settings.use24Hour = true;
     settings.analogShowDate = false;
     settings.resetAll();
     expect(settings.loop, isFalse);
+    expect(settings.layout, ClockLayout.auto);
     expect(settings.use24Hour, isNull);
     expect(settings.analogShowDate, isTrue);
     expect(settings.segmentShowDate, isTrue);
@@ -534,7 +540,10 @@ void main() {
     await tester.pumpWidget(clockApp(face: ClockFace.flip));
     await tester.pumpAndSettle();
 
-    final before = tester.getSize(find.byKey(const ValueKey('flip-cards')));
+    final cards = find.byWidgetPredicate(
+      (widget) => widget.runtimeType.toString() == '_FlipCard',
+    );
+    final before = tester.getSize(cards.first);
 
     await tester.tap(find.byKey(const ValueKey('clock-settings')));
     await tester.pumpAndSettle();
@@ -547,7 +556,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('clock-settings-close')));
     await tester.pumpAndSettle();
 
-    final after = tester.getSize(find.byKey(const ValueKey('flip-cards')));
+    final after = tester.getSize(cards.first);
     expect(after.width, lessThan(before.width));
   });
 
@@ -1001,6 +1010,84 @@ void main() {
     }
   });
 
+  testWidgets('follows orientation and supports forced layouts', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final store = <String, String>{};
+    final preferences = _MemoryPreferences(store);
+
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpWidget(
+      clockApp(face: ClockFace.flip, preferences: preferences),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('clock-layout-flip-portrait')),
+      findsOneWidget,
+    );
+
+    tester.view.physicalSize = const Size(844, 390);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('clock-layout-flip-landscape')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings')));
+    await tester.pumpAndSettle();
+
+    final portrait = find.text('Portrait');
+    await tester.ensureVisible(portrait);
+    await tester.pump();
+    await tester.tap(portrait);
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings-close')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('clock-layout-flip-portrait')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('every face fits each forced layout', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    for (final layout in const [ClockLayout.portrait, ClockLayout.landscape]) {
+      final settings = ClockSettings()..layout = layout;
+      final preferences = _MemoryPreferences({
+        'settings': jsonEncode(settings.toJson()),
+      });
+      for (final size in const [Size(390, 844), Size(844, 390)]) {
+        tester.view.physicalSize = size;
+        for (final face in ClockFace.values) {
+          await tester.pumpWidget(
+            clockApp(
+              face: face,
+              key: ValueKey('$layout-$size-${face.name}'),
+              preferences: preferences,
+            ),
+          );
+          await tester.pump();
+          await tester.pumpAndSettle();
+
+          final orientation = layout == ClockLayout.portrait
+              ? 'portrait'
+              : 'landscape';
+          expect(
+            find.byKey(ValueKey('clock-layout-${face.name}-$orientation')),
+            findsOneWidget,
+          );
+        }
+      }
+    }
+  });
+
   testWidgets('lays out every face in portrait and landscape', (tester) async {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -1014,6 +1101,11 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.text(face.englishName), findsOneWidget);
+        final layout = size.width < size.height ? 'portrait' : 'landscape';
+        expect(
+          find.byKey(ValueKey('clock-layout-${face.name}-$layout')),
+          findsOneWidget,
+        );
       }
     }
   });
