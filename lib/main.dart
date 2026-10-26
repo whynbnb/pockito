@@ -49,9 +49,13 @@ String tr(BuildContext context, String english, String chinese) =>
 enum LocaleMode { english, chinese, system }
 
 class LocalPreferences {
-  LocalPreferences([this._directory]);
-  static const _fileName = 'tool_prefs.json';
+  LocalPreferences([this._directory]) : _fileName = _defaultFileName;
+
+  LocalPreferences.forFile(this._fileName, [this._directory]);
+
+  static const _defaultFileName = 'tool_prefs.json';
   final Directory? _directory;
+  final String _fileName;
   File? _file;
   Map<String, dynamic>? _cache;
 
@@ -8947,10 +8951,130 @@ List<int> clockBinaryDigits(DateTime now, {required bool use24Hour}) {
 
 bool clockBinaryBit(int digit, int weight) => (digit & weight) != 0;
 
+class ClockSettings {
+  ClockSettings();
+
+  bool loop = false;
+  bool? use24Hour;
+  double analogScale = 1;
+  bool analogShowDigital = true;
+  bool analogShowDate = true;
+  bool analogShowMinuteHand = true;
+  bool analogShowSecondHand = true;
+  double flipScale = 1;
+  bool flipShowSeconds = true;
+  bool flipShowDate = true;
+  double binaryScale = 1;
+  bool binaryShowSeconds = true;
+  bool binaryShowLabels = true;
+  bool binaryShowDigital = true;
+  bool binaryShowDate = true;
+  bool bigShowDate = true;
+  bool bigShowSeconds = true;
+
+  void resetGeneral() {
+    loop = false;
+    use24Hour = null;
+  }
+
+  void resetAnalog() {
+    analogScale = 1;
+    analogShowDigital = true;
+    analogShowDate = true;
+    analogShowMinuteHand = true;
+    analogShowSecondHand = true;
+  }
+
+  void resetFlip() {
+    flipScale = 1;
+    flipShowSeconds = true;
+    flipShowDate = true;
+  }
+
+  void resetBinary() {
+    binaryScale = 1;
+    binaryShowSeconds = true;
+    binaryShowLabels = true;
+    binaryShowDigital = true;
+    binaryShowDate = true;
+  }
+
+  void resetBig() {
+    bigShowDate = true;
+    bigShowSeconds = true;
+  }
+
+  void resetAll() {
+    resetGeneral();
+    resetAnalog();
+    resetFlip();
+    resetBinary();
+    resetBig();
+  }
+
+  Map<String, dynamic> toJson() => {
+    'loop': loop,
+    'use24': use24Hour,
+    'analogScale': analogScale,
+    'analogDigital': analogShowDigital,
+    'analogDate': analogShowDate,
+    'analogMinuteHand': analogShowMinuteHand,
+    'analogSecondHand': analogShowSecondHand,
+    'flipScale': flipScale,
+    'flipSeconds': flipShowSeconds,
+    'flipDate': flipShowDate,
+    'binaryScale': binaryScale,
+    'binarySeconds': binaryShowSeconds,
+    'binaryLabels': binaryShowLabels,
+    'binaryDigital': binaryShowDigital,
+    'binaryDate': binaryShowDate,
+    'bigDate': bigShowDate,
+    'bigSeconds': bigShowSeconds,
+  };
+
+  factory ClockSettings.fromJson(Map<String, dynamic> json) {
+    final settings = ClockSettings();
+    settings.loop = json['loop'] == true;
+    final use24 = json['use24'];
+    if (use24 is bool) settings.use24Hour = use24;
+    settings.analogScale = _readScale(json['analogScale']);
+    settings.analogShowDigital = _readBool(json['analogDigital'], true);
+    settings.analogShowDate = _readBool(json['analogDate'], true);
+    settings.analogShowMinuteHand = _readBool(json['analogMinuteHand'], true);
+    settings.analogShowSecondHand = _readBool(json['analogSecondHand'], true);
+    settings.flipScale = _readScale(json['flipScale']);
+    settings.flipShowSeconds = _readBool(json['flipSeconds'], true);
+    settings.flipShowDate = _readBool(json['flipDate'], true);
+    settings.binaryScale = _readScale(json['binaryScale']);
+    settings.binaryShowSeconds = _readBool(json['binarySeconds'], true);
+    settings.binaryShowLabels = _readBool(json['binaryLabels'], true);
+    settings.binaryShowDigital = _readBool(json['binaryDigital'], true);
+    settings.binaryShowDate = _readBool(json['binaryDate'], true);
+    settings.bigShowDate = _readBool(json['bigDate'], true);
+    settings.bigShowSeconds = _readBool(json['bigSeconds'], true);
+    return settings;
+  }
+
+  static double _readScale(dynamic value) {
+    if (value is num && value.isFinite) {
+      return value.toDouble().clamp(0.7, 1.2).toDouble();
+    }
+    return 1;
+  }
+
+  static bool _readBool(dynamic value, bool fallback) =>
+      value is bool ? value : fallback;
+}
+
 class ClockScreen extends StatefulWidget {
-  const ClockScreen({super.key, this.initialFace = ClockFace.analog});
+  const ClockScreen({
+    super.key,
+    this.initialFace = ClockFace.analog,
+    this.preferences,
+  });
 
   final ClockFace initialFace;
+  final LocalPreferences? preferences;
 
   @override
   State<ClockScreen> createState() => _ClockScreenState();
@@ -8958,7 +9082,8 @@ class ClockScreen extends StatefulWidget {
 
 class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
   static const _faces = ClockFace.values;
-  late final PageController _pageController;
+  static const _loopBase = 4000;
+  late PageController _pageController;
   late int _faceIndex;
   DateTime _now = DateTime.now();
   Timer? _tickTimer;
@@ -8969,20 +9094,34 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
   bool _keepAwake = true;
   bool _wakeLockUnavailable = false;
   bool _backgrounded = false;
+  ClockSettings _settings = ClockSettings();
+  late final LocalPreferences _preferences;
+  bool _settingsTouched = false;
+  Timer? _saveTimer;
 
   ClockFace get _face => _faces[_faceIndex];
 
   bool get _desktop =>
       Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
+  bool _resolveUse24Hour(BuildContext context) =>
+      _settings.use24Hour ??
+      (MediaQuery.of(context).alwaysUse24HourFormat ||
+          Localizations.localeOf(context).languageCode == 'zh');
+
   @override
   void initState() {
     super.initState();
+    _preferences =
+        widget.preferences ?? LocalPreferences.forFile('tool_clock.json');
     _faceIndex = widget.initialFace.index;
-    _pageController = PageController(initialPage: _faceIndex);
+    _pageController = PageController(
+      initialPage: _settings.loop ? _loopBase + _faceIndex : _faceIndex,
+    );
     WidgetsBinding.instance.addObserver(this);
     _scheduleTick();
     unawaited(_syncWakelock());
+    unawaited(_loadSettings());
   }
 
   @override
@@ -8990,6 +9129,8 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _tickTimer?.cancel();
     _controlsTimer?.cancel();
+    _saveTimer?.cancel();
+    if (_settingsTouched) unawaited(_saveSettings());
     if (_fullscreen) unawaited(_showSystemUi());
     if (_desktopFullscreen) {
       unawaited(_setDesktopFullscreen(false));
@@ -9011,6 +9152,8 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
         state == AppLifecycleState.hidden) {
       _backgrounded = true;
       _tickTimer?.cancel();
+      _saveTimer?.cancel();
+      if (_settingsTouched) unawaited(_saveSettings());
       unawaited(WakelockPlus.disable().catchError((_) {}));
     }
   }
@@ -9024,6 +9167,41 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
       setState(() => _now = DateTime.now());
       _scheduleTick();
     });
+  }
+
+  Future<void> _loadSettings() async {
+    final raw = await _preferences.getString('settings');
+    if (!mounted || raw == null || _settingsTouched) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final loaded = ClockSettings.fromJson(Map<String, dynamic>.from(decoded));
+      final loopChanged = loaded.loop != _settings.loop;
+      setState(() => _settings = loaded);
+      if (loopChanged) _resetPager();
+    } catch (_) {
+      // Keep the defaults when the stored data cannot be read.
+    }
+  }
+
+  Future<void> _saveSettings() async {
+    try {
+      await _preferences.setString('settings', jsonEncode(_settings.toJson()));
+    } catch (_) {}
+  }
+
+  void _scheduleSave() {
+    _settingsTouched = true;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 150), () {
+      unawaited(_saveSettings());
+    });
+  }
+
+  void _mutateSettings(VoidCallback update) {
+    _settingsTouched = true;
+    setState(update);
+    _scheduleSave();
   }
 
   Future<void> _syncWakelock() async {
@@ -9127,10 +9305,43 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _setLoop(bool value) {
+    if (_settings.loop == value) return;
+    _settings.loop = value;
+    _resetPager();
+    _scheduleSave();
+  }
+
+  void _resetPager() {
+    final oldController = _pageController;
+    final newController = PageController(
+      initialPage: _settings.loop ? _loopBase + _faceIndex : _faceIndex,
+    );
+    setState(() => _pageController = newController);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => oldController.dispose(),
+    );
+  }
+
   void _goToFace(int index) {
     final target = index < 0
         ? 0
         : (index >= _faces.length ? _faces.length - 1 : index);
+    if (_settings.loop) {
+      final page = _pageController.hasClients && _pageController.page != null
+          ? _pageController.page!.round()
+          : _loopBase + _faceIndex;
+      var delta = target - page % _faces.length;
+      if (delta > _faces.length ~/ 2) delta -= _faces.length;
+      if (delta < -(_faces.length ~/ 2)) delta += _faces.length;
+      if (delta == 0) return;
+      _pageController.animateToPage(
+        page + delta,
+        duration: const Duration(milliseconds: 380),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
     if (target == _faceIndex) return;
     setState(() => _faceIndex = target);
     _pageController.animateToPage(
@@ -9140,9 +9351,452 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _previousFace() => _goToFace(_faceIndex - 1);
+  void _previousFace() {
+    if (_settings.loop) {
+      if (_pageController.hasClients) {
+        _pageController.previousPage(
+          duration: const Duration(milliseconds: 380),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      return;
+    }
+    _goToFace(_faceIndex - 1);
+  }
 
-  void _nextFace() => _goToFace(_faceIndex + 1);
+  void _nextFace() {
+    if (_settings.loop) {
+      if (_pageController.hasClients) {
+        _pageController.nextPage(
+          duration: const Duration(milliseconds: 380),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      return;
+    }
+    _goToFace(_faceIndex + 1);
+  }
+
+  Future<void> _openClockSettings() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            void refresh() => setSheetState(() {});
+            return Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 620,
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.84,
+                ),
+                child: _clockSettingsSheet(context, refresh),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _clockSettingsSheet(BuildContext context, VoidCallback refresh) {
+    final theme = Theme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 8, 8),
+          child: Row(
+            children: [
+              Text(
+                tr(context, 'Clock settings', '时钟设置'),
+                style: theme.textTheme.titleLarge,
+              ),
+              const Spacer(),
+              IconButton(
+                key: const ValueKey('clock-reset-all'),
+                tooltip: tr(context, 'Reset all settings', '重置所有设置'),
+                onPressed: () {
+                  final loopBefore = _settings.loop;
+                  _mutateSettings(_settings.resetAll);
+                  if (loopBefore != _settings.loop) _resetPager();
+                  refresh();
+                },
+                icon: const Icon(Icons.restart_alt),
+              ),
+              IconButton(
+                key: const ValueKey('clock-settings-close'),
+                tooltip: tr(context, 'Close', '关闭'),
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+        ),
+        Flexible(
+          child: SingleChildScrollView(
+            key: const ValueKey('clock-settings-sheet'),
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            child: _clockSettingsContent(context, refresh),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _clockSettingsContent(BuildContext context, VoidCallback refresh) {
+    final theme = Theme.of(context);
+    final use24Hour = _resolveUse24Hour(context);
+
+    void apply(VoidCallback update) {
+      _mutateSettings(update);
+      refresh();
+    }
+
+    void resetSection(VoidCallback reset) {
+      _mutateSettings(reset);
+      refresh();
+    }
+
+    Widget section(
+      IconData icon,
+      String english,
+      String chinese,
+      List<Widget> children, {
+      Key? resetKey,
+      VoidCallback? onReset,
+    }) => _settingsSection(
+      context,
+      icon,
+      english,
+      chinese,
+      children,
+      resetKey: resetKey,
+      onReset: onReset,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        section(Icons.tune, 'General', '通用', [
+          SwitchListTile(
+            key: const ValueKey('clock-loop'),
+            contentPadding: EdgeInsets.zero,
+            title: Text(tr(context, 'Loop between clocks', '循环滑动')),
+            subtitle: Text(
+              tr(
+                context,
+                'Swiping past the last clock wraps to the first.',
+                '从最后一个表盘继续滑动会回到第一个。',
+              ),
+            ),
+            value: _settings.loop,
+            onChanged: (value) {
+              _setLoop(value);
+              refresh();
+            },
+          ),
+          const SizedBox(height: 8),
+          Text(
+            tr(context, 'Hour format', '小时制'),
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+          SegmentedButton<bool>(
+            key: const ValueKey('clock-hour-format'),
+            segments: [
+              ButtonSegment(
+                value: false,
+                label: Text(tr(context, '12-hour', '12 小时')),
+              ),
+              ButtonSegment(
+                value: true,
+                label: Text(tr(context, '24-hour', '24 小时')),
+              ),
+            ],
+            selected: {use24Hour},
+            onSelectionChanged: (selection) {
+              apply(() => _settings.use24Hour = selection.first);
+            },
+          ),
+          const SizedBox(height: 4),
+          Text(
+            tr(
+              context,
+              'Follows your system setting until you choose one.',
+              '未选择时跟随系统设置。',
+            ),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ]),
+        const Divider(height: 32),
+        section(
+          Icons.access_time,
+          'Analog',
+          '模拟',
+          [
+            _sizeSlider(
+              context,
+              key: const ValueKey('clock-analog-scale'),
+              value: _settings.analogScale,
+              onChanged: (value) => apply(() => _settings.analogScale = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-analog-minute-hand'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Minute hand', '分针')),
+              value: _settings.analogShowMinuteHand,
+              onChanged: (value) =>
+                  apply(() => _settings.analogShowMinuteHand = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-analog-second-hand'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Second hand', '秒针')),
+              value: _settings.analogShowSecondHand,
+              onChanged: (value) =>
+                  apply(() => _settings.analogShowSecondHand = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-analog-digital'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Digital clock', '数字时钟')),
+              subtitle: Text(
+                tr(
+                  context,
+                  'Show the digital time below the face.',
+                  '在表盘下方显示数字时间。',
+                ),
+              ),
+              value: _settings.analogShowDigital,
+              onChanged: (value) =>
+                  apply(() => _settings.analogShowDigital = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-analog-date'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Date', '日期')),
+              value: _settings.analogShowDate,
+              onChanged: (value) =>
+                  apply(() => _settings.analogShowDate = value),
+            ),
+          ],
+          resetKey: const ValueKey('clock-reset-analog'),
+          onReset: () => resetSection(_settings.resetAnalog),
+        ),
+        const Divider(height: 32),
+        section(
+          Icons.flip_to_front_outlined,
+          'Flip',
+          '翻页',
+          [
+            _sizeSlider(
+              context,
+              key: const ValueKey('clock-flip-scale'),
+              value: _settings.flipScale,
+              onChanged: (value) => apply(() => _settings.flipScale = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-flip-seconds'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Seconds', '秒数')),
+              value: _settings.flipShowSeconds,
+              onChanged: (value) =>
+                  apply(() => _settings.flipShowSeconds = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-flip-date'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Calendar date', '日历日期')),
+              value: _settings.flipShowDate,
+              onChanged: (value) => apply(() => _settings.flipShowDate = value),
+            ),
+          ],
+          resetKey: const ValueKey('clock-reset-flip'),
+          onReset: () => resetSection(_settings.resetFlip),
+        ),
+        const Divider(height: 32),
+        section(
+          Icons.grid_on,
+          'Binary',
+          '二进制',
+          [
+            _sizeSlider(
+              context,
+              key: const ValueKey('clock-binary-scale'),
+              value: _settings.binaryScale,
+              onChanged: (value) => apply(() => _settings.binaryScale = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-binary-seconds'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Seconds', '秒数')),
+              subtitle: Text(
+                tr(
+                  context,
+                  'Show seconds in the columns and digital time.',
+                  '在点阵和数字时间中显示秒数。',
+                ),
+              ),
+              value: _settings.binaryShowSeconds,
+              onChanged: (value) =>
+                  apply(() => _settings.binaryShowSeconds = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-binary-labels'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Labels', '标签')),
+              subtitle: Text(
+                tr(
+                  context,
+                  'Show the title, 8/4/2/1 legend, and column digits.',
+                  '显示标题、8/4/2/1 图例和列数字。',
+                ),
+              ),
+              value: _settings.binaryShowLabels,
+              onChanged: (value) =>
+                  apply(() => _settings.binaryShowLabels = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-binary-digital'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Digital clock', '数字时钟')),
+              subtitle: Text(
+                tr(
+                  context,
+                  'Show the decimal time under the dots.',
+                  '在点阵下方显示十进制时间。',
+                ),
+              ),
+              value: _settings.binaryShowDigital,
+              onChanged: (value) =>
+                  apply(() => _settings.binaryShowDigital = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-binary-date'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Date', '日期')),
+              value: _settings.binaryShowDate,
+              onChanged: (value) =>
+                  apply(() => _settings.binaryShowDate = value),
+            ),
+          ],
+          resetKey: const ValueKey('clock-reset-binary'),
+          onReset: () => resetSection(_settings.resetBinary),
+        ),
+        const Divider(height: 32),
+        section(
+          Icons.text_fields,
+          'Big digits',
+          '超大数字',
+          [
+            SwitchListTile(
+              key: const ValueKey('clock-big-date'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Date', '日期')),
+              value: _settings.bigShowDate,
+              onChanged: (value) => apply(() => _settings.bigShowDate = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-big-seconds'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Seconds', '秒数')),
+              value: _settings.bigShowSeconds,
+              onChanged: (value) =>
+                  apply(() => _settings.bigShowSeconds = value),
+            ),
+          ],
+          resetKey: const ValueKey('clock-reset-big'),
+          onReset: () => resetSection(_settings.resetBig),
+        ),
+      ],
+    );
+  }
+
+  Widget _settingsSection(
+    BuildContext context,
+    IconData icon,
+    String english,
+    String chinese,
+    List<Widget> children, {
+    Key? resetKey,
+    VoidCallback? onReset,
+  }) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 20, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                tr(context, english, chinese),
+                style: theme.textTheme.titleMedium,
+              ),
+            ),
+            if (onReset != null)
+              IconButton(
+                key: resetKey,
+                tooltip: tr(context, 'Reset $english settings', '重置$chinese设置'),
+                onPressed: onReset,
+                icon: const Icon(Icons.restart_alt),
+              ),
+          ],
+        ),
+        ...children,
+      ],
+    );
+  }
+
+  Widget _sizeSlider(
+    BuildContext context, {
+    required Key key,
+    required double value,
+    required ValueChanged<double> onChanged,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 56,
+            child: Text(
+              tr(context, 'Size', '尺寸'),
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+          Expanded(
+            child: Slider(
+              key: key,
+              value: value,
+              min: 0.7,
+              max: 1.2,
+              divisions: 10,
+              label: '${(value * 100).round()}%',
+              onChanged: onChanged,
+            ),
+          ),
+          SizedBox(
+            width: 48,
+            child: Text(
+              '${(value * 100).round()}%',
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _wakelockButton(BuildContext context, {required Key buttonKey}) {
     final scheme = Theme.of(context).colorScheme;
@@ -9204,12 +9858,14 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     );
     final previous = IconButton(
       tooltip: tr(context, 'Previous clock', '上一个时钟'),
-      onPressed: _faceIndex > 0 ? _previousFace : null,
+      onPressed: _settings.loop || _faceIndex > 0 ? _previousFace : null,
       icon: const Icon(Icons.chevron_left),
     );
     final next = IconButton(
       tooltip: tr(context, 'Next clock', '下一个时钟'),
-      onPressed: _faceIndex < _faces.length - 1 ? _nextFace : null,
+      onPressed: _settings.loop || _faceIndex < _faces.length - 1
+          ? _nextFace
+          : null,
       icon: const Icon(Icons.chevron_right),
     );
     if (compact) {
@@ -9270,6 +9926,12 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                         buttonKey: const ValueKey('clock-wakelock-overlay'),
                       ),
                       IconButton(
+                        key: const ValueKey('clock-settings-overlay'),
+                        tooltip: tr(context, 'Clock settings', '时钟设置'),
+                        onPressed: _openClockSettings,
+                        icon: const Icon(Icons.tune),
+                      ),
+                      IconButton(
                         key: const ValueKey('clock-exit-fullscreen'),
                         tooltip: tr(context, 'Exit fullscreen', '退出全屏'),
                         onPressed: () => _setFullscreen(false),
@@ -9306,27 +9968,59 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildFace(ClockFace face) {
-    final use24Hour =
-        MediaQuery.of(context).alwaysUse24HourFormat ||
-        Localizations.localeOf(context).languageCode == 'zh';
+  Widget _buildFace(ClockFace face, bool use24Hour) {
     return _ClockPageBackground(
       child: switch (face) {
-        ClockFace.analog => _AnalogClockPage(now: _now, use24Hour: use24Hour),
-        ClockFace.flip => _FlipClockPage(now: _now, use24Hour: use24Hour),
-        ClockFace.binary => _BinaryClockPage(now: _now, use24Hour: use24Hour),
-        ClockFace.big => _BigDigitsClockPage(now: _now, use24Hour: use24Hour),
+        ClockFace.analog => _AnalogClockPage(
+          now: _now,
+          use24Hour: use24Hour,
+          scale: _settings.analogScale,
+          showDigital: _settings.analogShowDigital,
+          showDate: _settings.analogShowDate,
+          showMinuteHand: _settings.analogShowMinuteHand,
+          showSecondHand: _settings.analogShowSecondHand,
+        ),
+        ClockFace.flip => _FlipClockPage(
+          now: _now,
+          use24Hour: use24Hour,
+          scale: _settings.flipScale,
+          showSeconds: _settings.flipShowSeconds,
+          showDate: _settings.flipShowDate,
+        ),
+        ClockFace.binary => _BinaryClockPage(
+          now: _now,
+          use24Hour: use24Hour,
+          scale: _settings.binaryScale,
+          showSeconds: _settings.binaryShowSeconds,
+          showLabels: _settings.binaryShowLabels,
+          showDigital: _settings.binaryShowDigital,
+          showDate: _settings.binaryShowDate,
+        ),
+        ClockFace.big => _BigDigitsClockPage(
+          now: _now,
+          use24Hour: use24Hour,
+          showDate: _settings.bigShowDate,
+          showSeconds: _settings.bigShowSeconds,
+        ),
       },
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final pages = PageView(
-      key: const ValueKey('clock-pages'),
+    final use24Hour = _resolveUse24Hour(context);
+    final pages = PageView.builder(
+      key: ValueKey('clock-pages-${_settings.loop ? 'loop' : 'finite'}'),
       controller: _pageController,
-      onPageChanged: (index) => setState(() => _faceIndex = index),
-      children: [for (final face in _faces) _buildFace(face)],
+      itemCount: _settings.loop ? null : _faces.length,
+      onPageChanged: (page) {
+        final index = _settings.loop ? page % _faces.length : page;
+        if (index != _faceIndex) setState(() => _faceIndex = index);
+      },
+      itemBuilder: (context, page) {
+        final face = _faces[_settings.loop ? page % _faces.length : page];
+        return _buildFace(face, use24Hour);
+      },
     );
     final body = _fullscreen
         ? Stack(
@@ -9375,6 +10069,12 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                         buttonKey: const ValueKey('clock-wakelock'),
                       ),
                       IconButton(
+                        key: const ValueKey('clock-settings'),
+                        tooltip: tr(context, 'Clock settings', '时钟设置'),
+                        onPressed: _openClockSettings,
+                        icon: const Icon(Icons.tune),
+                      ),
+                      IconButton(
                         key: const ValueKey('clock-fullscreen'),
                         tooltip: tr(context, 'Fullscreen', '全屏'),
                         onPressed: () => _setFullscreen(true),
@@ -9415,10 +10115,23 @@ class _ClockPageBackground extends StatelessWidget {
 }
 
 class _AnalogClockPage extends StatelessWidget {
-  const _AnalogClockPage({required this.now, required this.use24Hour});
+  const _AnalogClockPage({
+    required this.now,
+    required this.use24Hour,
+    required this.scale,
+    required this.showDigital,
+    required this.showDate,
+    required this.showMinuteHand,
+    required this.showSecondHand,
+  });
 
   final DateTime now;
   final bool use24Hour;
+  final double scale;
+  final bool showDigital;
+  final bool showDate;
+  final bool showMinuteHand;
+  final bool showSecondHand;
 
   @override
   Widget build(BuildContext context) {
@@ -9428,20 +10141,31 @@ class _AnalogClockPage extends StatelessWidget {
     final date = MaterialLocalizations.of(context).formatMediumDate(now);
     return LayoutBuilder(
       builder: (context, constraints) {
-        final faceSize = min(
-          constraints.maxWidth,
-          constraints.maxHeight * 0.64,
-        ).clamp(120.0, 620.0);
+        final reserve =
+            24.0 + (showDigital ? 30.0 : 0.0) + (showDate ? 24.0 : 0.0);
+        final fit = max(
+          60.0,
+          min(constraints.maxWidth, constraints.maxHeight - reserve),
+        );
+        final base = fit * 0.88;
+        final faceSize = (base * scale).clamp(60.0, fit);
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
+                key: const ValueKey('analog-face'),
                 width: faceSize,
                 height: faceSize,
                 child: CustomPaint(
+                  key: ValueKey(
+                    'analog-hands-'
+                    '${showMinuteHand ? 1 : 0}${showSecondHand ? 1 : 0}',
+                  ),
                   painter: _AnalogClockPainter(
                     now: now,
+                    showMinuteHand: showMinuteHand,
+                    showSecondHand: showSecondHand,
                     faceColor: scheme.surfaceContainerHigh,
                     rimColor: scheme.outlineVariant,
                     tickColor: scheme.onSurfaceVariant,
@@ -9452,21 +10176,27 @@ class _AnalogClockPage extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
-              Text(
-                '${digits.hour}:${digits.minute}:${digits.second}'
-                '${digits.period.isNotEmpty ? ' ${digits.period}' : ''}',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontFeatures: const [FontFeature.tabularFigures()],
+              if (showDigital || showDate) const SizedBox(height: 16),
+              if (showDigital)
+                Text(
+                  '${digits.hour}:${digits.minute}:${digits.second}'
+                  '${digits.period.isNotEmpty ? ' ${digits.period}' : ''}',
+                  key: const ValueKey('analog-digital'),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                date,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
+              if (showDate)
+                Padding(
+                  padding: EdgeInsets.only(top: showDigital ? 4 : 0),
+                  child: Text(
+                    date,
+                    key: const ValueKey('analog-date'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
-              ),
             ],
           ),
         );
@@ -9478,6 +10208,8 @@ class _AnalogClockPage extends StatelessWidget {
 class _AnalogClockPainter extends CustomPainter {
   _AnalogClockPainter({
     required this.now,
+    required this.showMinuteHand,
+    required this.showSecondHand,
     required this.faceColor,
     required this.rimColor,
     required this.tickColor,
@@ -9488,6 +10220,8 @@ class _AnalogClockPainter extends CustomPainter {
   });
 
   final DateTime now;
+  final bool showMinuteHand;
+  final bool showSecondHand;
   final Color faceColor;
   final Color rimColor;
   final Color tickColor;
@@ -9577,30 +10311,34 @@ class _AnalogClockPainter extends CustomPainter {
       max(3, radius * 0.035),
       hourColor,
     );
-    _drawHand(
-      canvas,
-      center,
-      minuteAngle,
-      radius * 0.68,
-      max(2, radius * 0.024),
-      minuteColor,
-    );
-    _drawHand(
-      canvas,
-      center,
-      secondAngle,
-      radius * 0.78,
-      max(1.4, radius * 0.012),
-      secondColor,
-      tail: radius * 0.12,
-    );
-    final tip =
-        center + Offset(cos(secondAngle), sin(secondAngle)) * (radius * 0.78);
-    canvas.drawCircle(
-      tip,
-      max(2, radius * 0.025),
-      Paint()..color = secondColor,
-    );
+    if (showMinuteHand) {
+      _drawHand(
+        canvas,
+        center,
+        minuteAngle,
+        radius * 0.68,
+        max(2, radius * 0.024),
+        minuteColor,
+      );
+    }
+    if (showSecondHand) {
+      _drawHand(
+        canvas,
+        center,
+        secondAngle,
+        radius * 0.78,
+        max(1.4, radius * 0.012),
+        secondColor,
+        tail: radius * 0.12,
+      );
+      final tip =
+          center + Offset(cos(secondAngle), sin(secondAngle)) * (radius * 0.78);
+      canvas.drawCircle(
+        tip,
+        max(2, radius * 0.025),
+        Paint()..color = secondColor,
+      );
+    }
     canvas.drawCircle(
       center,
       max(3, radius * 0.035),
@@ -9638,6 +10376,8 @@ class _AnalogClockPainter extends CustomPainter {
   @override
   bool shouldRepaint(_AnalogClockPainter oldDelegate) =>
       oldDelegate.now != now ||
+      oldDelegate.showMinuteHand != showMinuteHand ||
+      oldDelegate.showSecondHand != showSecondHand ||
       oldDelegate.faceColor != faceColor ||
       oldDelegate.rimColor != rimColor ||
       oldDelegate.tickColor != tickColor ||
@@ -9648,10 +10388,19 @@ class _AnalogClockPainter extends CustomPainter {
 }
 
 class _FlipClockPage extends StatelessWidget {
-  const _FlipClockPage({required this.now, required this.use24Hour});
+  const _FlipClockPage({
+    required this.now,
+    required this.use24Hour,
+    required this.scale,
+    required this.showSeconds,
+    required this.showDate,
+  });
 
   final DateTime now;
   final bool use24Hour;
+  final double scale;
+  final bool showSeconds;
+  final bool showDate;
 
   @override
   Widget build(BuildContext context) {
@@ -9661,10 +10410,19 @@ class _FlipClockPage extends StatelessWidget {
     final date = MaterialLocalizations.of(context).formatMediumDate(now);
     return LayoutBuilder(
       builder: (context, constraints) {
-        final cardWidth = min(
+        final reserve =
+            28.0 +
+            (showSeconds ? 24.0 : 0.0) +
+            (showDate ? 24.0 : 0.0) +
+            (digits.period.isNotEmpty ? 24.0 : 0.0);
+        final maxCardByWidth = (constraints.maxWidth - 40) / 4.18;
+        final maxCardByHeight = (constraints.maxHeight - reserve) / 1.36;
+        final fit = max(24.0, min(maxCardByWidth, maxCardByHeight));
+        final base = min(
           (constraints.maxWidth - 32) / 4.8,
           constraints.maxHeight * 0.28,
-        ).clamp(44.0, 170.0);
+        );
+        final cardWidth = (base * scale).clamp(24.0, fit);
         final cardHeight = cardWidth * 1.36;
         final colonSize = cardHeight * 0.42;
         final cardColor = scheme.surfaceContainerHighest;
@@ -9674,6 +10432,7 @@ class _FlipClockPage extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(
+                key: const ValueKey('flip-cards'),
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _FlipCard(
@@ -9729,21 +10488,28 @@ class _FlipClockPage extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              Text(
-                '${digits.second} s',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: scheme.primary,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+              if (showSeconds || showDate || digits.period.isNotEmpty)
+                const SizedBox(height: 18),
+              if (showSeconds)
+                Text(
+                  '${digits.second} s',
+                  key: const ValueKey('flip-seconds'),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: scheme.primary,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                date,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
+              if (showDate)
+                Padding(
+                  padding: EdgeInsets.only(top: showSeconds ? 4 : 0),
+                  child: Text(
+                    date,
+                    key: const ValueKey('flip-date'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
-              ),
               if (digits.period.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
@@ -9850,10 +10616,23 @@ class _FlipCard extends StatelessWidget {
 }
 
 class _BinaryClockPage extends StatelessWidget {
-  const _BinaryClockPage({required this.now, required this.use24Hour});
+  const _BinaryClockPage({
+    required this.now,
+    required this.use24Hour,
+    required this.scale,
+    required this.showSeconds,
+    required this.showLabels,
+    required this.showDigital,
+    required this.showDate,
+  });
 
   final DateTime now;
   final bool use24Hour;
+  final double scale;
+  final bool showSeconds;
+  final bool showLabels;
+  final bool showDigital;
+  final bool showDate;
 
   @override
   Widget build(BuildContext context) {
@@ -9865,10 +10644,27 @@ class _BinaryClockPage extends StatelessWidget {
     const weights = [8, 4, 2, 1];
     return LayoutBuilder(
       builder: (context, constraints) {
-        final unit = min(
-          constraints.maxWidth / 12.5,
-          constraints.maxHeight / 13,
-        ).clamp(10.0, 48.0);
+        final reserve =
+            24.0 +
+            (showLabels ? 40.0 : 0.0) +
+            (showDigital ? 52.0 : 0.0) +
+            (showDate ? 24.0 : 0.0);
+        final maxUnitByHeight = max(
+          10.0,
+          (constraints.maxHeight - reserve) / 5.65,
+        );
+        final columnCount = showSeconds ? 6 : 4;
+        final separatorCount = showSeconds ? 2 : 1;
+        final legendUnits = showLabels ? 1.78 : 0.0;
+        final widthUnits =
+            columnCount +
+            (columnCount - 1) * 0.55 +
+            separatorCount * 1.4 * 0.55 +
+            legendUnits;
+        final maxUnitByWidth = constraints.maxWidth / (widthUnits + 0.4);
+        final fit = max(10.0, min(maxUnitByWidth, maxUnitByHeight));
+        final upper = max(10.0, fit);
+        final unit = (fit * 0.85 * scale).clamp(10.0, upper);
         final gap = unit * 0.55;
 
         Widget digitColumn(int index) => Column(
@@ -9884,14 +10680,17 @@ class _BinaryClockPage extends StatelessWidget {
               ),
               if (row < 3) SizedBox(height: gap),
             ],
-            const SizedBox(height: 8),
-            Text(
-              '${digits[index]}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-                fontFeatures: const [FontFeature.tabularFigures()],
+            if (showLabels) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${digits[index]}',
+                key: ValueKey('binary-label-$index'),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
-            ),
+            ],
           ],
         );
 
@@ -9926,40 +10725,45 @@ class _BinaryClockPage extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                tr(context, 'BINARY', '二进制'),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: scheme.primary,
-                  letterSpacing: 4,
-                  fontWeight: FontWeight.w600,
+              if (showLabels)
+                Text(
+                  tr(context, 'BINARY', '二进制'),
+                  key: const ValueKey('binary-label-title'),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.primary,
+                    letterSpacing: 4,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 18),
+              if (showLabels) const SizedBox(height: 18),
               Row(
+                key: const ValueKey('binary-matrix'),
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (var row = 0; row < 4; row++) ...[
-                        SizedBox(
-                          width: unit * 0.9,
-                          height: unit,
-                          child: Center(
-                            child: Text(
-                              '${weights[row]}',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
+                  if (showLabels)
+                    Column(
+                      key: const ValueKey('binary-legend'),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (var row = 0; row < 4; row++) ...[
+                          SizedBox(
+                            width: unit * 0.9,
+                            height: unit,
+                            child: Center(
+                              child: Text(
+                                '${weights[row]}',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        if (row < 3) SizedBox(height: gap),
+                          if (row < 3) SizedBox(height: gap),
+                        ],
                       ],
-                    ],
-                  ),
-                  SizedBox(width: gap * 1.6),
+                    ),
+                  if (showLabels) SizedBox(width: gap * 1.6),
                   digitColumn(0),
                   SizedBox(width: gap),
                   digitColumn(1),
@@ -9967,27 +10771,42 @@ class _BinaryClockPage extends StatelessWidget {
                   digitColumn(2),
                   SizedBox(width: gap),
                   digitColumn(3),
-                  separator(),
-                  digitColumn(4),
-                  SizedBox(width: gap),
-                  digitColumn(5),
+                  if (showSeconds)
+                    Row(
+                      key: const ValueKey('binary-seconds'),
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        separator(),
+                        digitColumn(4),
+                        SizedBox(width: gap),
+                        digitColumn(5),
+                      ],
+                    ),
                 ],
               ),
-              const SizedBox(height: 22),
-              Text(
-                '${clock.hour}:${clock.minute}:${clock.second}'
-                '${clock.period.isNotEmpty ? ' ${clock.period}' : ''}',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontFeatures: const [FontFeature.tabularFigures()],
+              if (showDigital || showDate) const SizedBox(height: 22),
+              if (showDigital)
+                Text(
+                  '${clock.hour}:${clock.minute}'
+                  '${showSeconds ? ':${clock.second}' : ''}'
+                  '${clock.period.isNotEmpty ? ' ${clock.period}' : ''}',
+                  key: const ValueKey('binary-digital'),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                date,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
+              if (showDate)
+                Padding(
+                  padding: EdgeInsets.only(top: showDigital ? 4 : 0),
+                  child: Text(
+                    date,
+                    key: const ValueKey('binary-date'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
-              ),
             ],
           ),
         );
@@ -10038,10 +10857,17 @@ class _BinaryDot extends StatelessWidget {
 }
 
 class _BigDigitsClockPage extends StatelessWidget {
-  const _BigDigitsClockPage({required this.now, required this.use24Hour});
+  const _BigDigitsClockPage({
+    required this.now,
+    required this.use24Hour,
+    required this.showDate,
+    required this.showSeconds,
+  });
 
   final DateTime now;
   final bool use24Hour;
+  final bool showDate;
+  final bool showSeconds;
 
   @override
   Widget build(BuildContext context) {
@@ -10061,12 +10887,14 @@ class _BigDigitsClockPage extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Column(
         children: [
-          Text(
-            date,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
+          if (showDate)
+            Text(
+              date,
+              key: const ValueKey('big-date'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
             ),
-          ),
           Expanded(
             child: Center(
               child: FittedBox(
@@ -10091,14 +10919,16 @@ class _BigDigitsClockPage extends StatelessWidget {
               ),
             ),
           ),
-          Text(
-            '${digits.second} s'
-            '${digits.period.isNotEmpty ? ' · ${digits.period}' : ''}',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontFeatures: const [FontFeature.tabularFigures()],
+          if (showSeconds)
+            Text(
+              '${digits.second} s'
+              '${digits.period.isNotEmpty ? ' · ${digits.period}' : ''}',
+              key: const ValueKey('big-seconds'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
             ),
-          ),
         ],
       ),
     );
