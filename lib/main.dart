@@ -13,6 +13,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pinyin/pinyin.dart';
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
@@ -496,6 +498,15 @@ const toolInfos = <ToolInfo>[
     englishSubtitle: 'Analog, flip, binary, big-digit and 8-segment clocks with a wake lock.',
     chineseSubtitle: '模拟、翻页、二进制、超大数字与 8 段码时钟，可保持屏幕常亮。',
   ),
+  ToolInfo(
+    id: 'world-clock',
+    icon: Icons.public,
+    englishTitle: 'World Clock',
+    chineseTitle: '世界时钟',
+    englishSubtitle:
+        'A mechanical flip board for multiple timezones and city signs.',
+    chineseSubtitle: '机场翻页牌风格的世界时钟，可添加多个时区与英文城市牌。',
+  ),
 ];
 
 ToolInfo? toolInfoById(String id) {
@@ -686,6 +697,7 @@ class HomeScreen extends StatelessWidget {
     'tone-generator' => const ToneGeneratorScreen(),
     'speaker-cleaner' => const SpeakerCleanerScreen(),
     'clock' => const ClockScreen(),
+    'world-clock' => const WorldClockScreen(),
     _ => null,
   };
 
@@ -12350,6 +12362,1594 @@ class _SegmentColonPainter extends CustomPainter {
       oldDelegate.onColor != onColor ||
       oldDelegate.offColor != offColor ||
       oldDelegate.dotRadius != dotRadius;
+}
+
+// World clock
+
+const List<String> defaultWorldCityIds = [
+  'local',
+  'london',
+  'new-york',
+  'tokyo',
+];
+
+class WorldCity {
+  const WorldCity({
+    required this.id,
+    required this.englishName,
+    required this.chineseName,
+    required this.code,
+    required this.englishRegion,
+    required this.chineseRegion,
+    required this.timeZone,
+  });
+
+  final String id;
+  final String englishName;
+  final String chineseName;
+  final String code;
+  final String englishRegion;
+  final String chineseRegion;
+  final String? timeZone;
+
+  bool get isLocal => timeZone == null;
+}
+
+const localWorldCity = WorldCity(
+  id: 'local',
+  englishName: 'Local',
+  chineseName: '本地',
+  code: 'LOC',
+  englishRegion: 'This device',
+  chineseRegion: '当前设备',
+  timeZone: null,
+);
+
+const worldCities = <WorldCity>[
+  localWorldCity,
+  WorldCity(
+    id: 'shanghai',
+    englishName: 'Shanghai',
+    chineseName: '上海',
+    code: 'PVG',
+    englishRegion: 'China',
+    chineseRegion: '中国',
+    timeZone: 'Asia/Shanghai',
+  ),
+  WorldCity(
+    id: 'hong-kong',
+    englishName: 'Hong Kong',
+    chineseName: '香港',
+    code: 'HKG',
+    englishRegion: 'Hong Kong',
+    chineseRegion: '中国香港',
+    timeZone: 'Asia/Hong_Kong',
+  ),
+  WorldCity(
+    id: 'taipei',
+    englishName: 'Taipei',
+    chineseName: '台北',
+    code: 'TPE',
+    englishRegion: 'Taiwan',
+    chineseRegion: '中国台湾',
+    timeZone: 'Asia/Taipei',
+  ),
+  WorldCity(
+    id: 'tokyo',
+    englishName: 'Tokyo',
+    chineseName: '东京',
+    code: 'HND',
+    englishRegion: 'Japan',
+    chineseRegion: '日本',
+    timeZone: 'Asia/Tokyo',
+  ),
+  WorldCity(
+    id: 'seoul',
+    englishName: 'Seoul',
+    chineseName: '首尔',
+    code: 'ICN',
+    englishRegion: 'South Korea',
+    chineseRegion: '韩国',
+    timeZone: 'Asia/Seoul',
+  ),
+  WorldCity(
+    id: 'singapore',
+    englishName: 'Singapore',
+    chineseName: '新加坡',
+    code: 'SIN',
+    englishRegion: 'Singapore',
+    chineseRegion: '新加坡',
+    timeZone: 'Asia/Singapore',
+  ),
+  WorldCity(
+    id: 'bangkok',
+    englishName: 'Bangkok',
+    chineseName: '曼谷',
+    code: 'BKK',
+    englishRegion: 'Thailand',
+    chineseRegion: '泰国',
+    timeZone: 'Asia/Bangkok',
+  ),
+  WorldCity(
+    id: 'dubai',
+    englishName: 'Dubai',
+    chineseName: '迪拜',
+    code: 'DXB',
+    englishRegion: 'United Arab Emirates',
+    chineseRegion: '阿联酋',
+    timeZone: 'Asia/Dubai',
+  ),
+  WorldCity(
+    id: 'mumbai',
+    englishName: 'Mumbai',
+    chineseName: '孟买',
+    code: 'BOM',
+    englishRegion: 'India',
+    chineseRegion: '印度',
+    timeZone: 'Asia/Kolkata',
+  ),
+  WorldCity(
+    id: 'delhi',
+    englishName: 'Delhi',
+    chineseName: '德里',
+    code: 'DEL',
+    englishRegion: 'India',
+    chineseRegion: '印度',
+    timeZone: 'Asia/Kolkata',
+  ),
+  WorldCity(
+    id: 'jakarta',
+    englishName: 'Jakarta',
+    chineseName: '雅加达',
+    code: 'CGK',
+    englishRegion: 'Indonesia',
+    chineseRegion: '印度尼西亚',
+    timeZone: 'Asia/Jakarta',
+  ),
+  WorldCity(
+    id: 'manila',
+    englishName: 'Manila',
+    chineseName: '马尼拉',
+    code: 'MNL',
+    englishRegion: 'Philippines',
+    chineseRegion: '菲律宾',
+    timeZone: 'Asia/Manila',
+  ),
+  WorldCity(
+    id: 'kuala-lumpur',
+    englishName: 'Kuala Lumpur',
+    chineseName: '吉隆坡',
+    code: 'KUL',
+    englishRegion: 'Malaysia',
+    chineseRegion: '马来西亚',
+    timeZone: 'Asia/Kuala_Lumpur',
+  ),
+  WorldCity(
+    id: 'doha',
+    englishName: 'Doha',
+    chineseName: '多哈',
+    code: 'DOH',
+    englishRegion: 'Qatar',
+    chineseRegion: '卡塔尔',
+    timeZone: 'Asia/Qatar',
+  ),
+  WorldCity(
+    id: 'riyadh',
+    englishName: 'Riyadh',
+    chineseName: '利雅得',
+    code: 'RUH',
+    englishRegion: 'Saudi Arabia',
+    chineseRegion: '沙特阿拉伯',
+    timeZone: 'Asia/Riyadh',
+  ),
+  WorldCity(
+    id: 'tel-aviv',
+    englishName: 'Tel Aviv',
+    chineseName: '特拉维夫',
+    code: 'TLV',
+    englishRegion: 'Israel',
+    chineseRegion: '以色列',
+    timeZone: 'Asia/Jerusalem',
+  ),
+  WorldCity(
+    id: 'london',
+    englishName: 'London',
+    chineseName: '伦敦',
+    code: 'LHR',
+    englishRegion: 'United Kingdom',
+    chineseRegion: '英国',
+    timeZone: 'Europe/London',
+  ),
+  WorldCity(
+    id: 'paris',
+    englishName: 'Paris',
+    chineseName: '巴黎',
+    code: 'CDG',
+    englishRegion: 'France',
+    chineseRegion: '法国',
+    timeZone: 'Europe/Paris',
+  ),
+  WorldCity(
+    id: 'berlin',
+    englishName: 'Berlin',
+    chineseName: '柏林',
+    code: 'BER',
+    englishRegion: 'Germany',
+    chineseRegion: '德国',
+    timeZone: 'Europe/Berlin',
+  ),
+  WorldCity(
+    id: 'madrid',
+    englishName: 'Madrid',
+    chineseName: '马德里',
+    code: 'MAD',
+    englishRegion: 'Spain',
+    chineseRegion: '西班牙',
+    timeZone: 'Europe/Madrid',
+  ),
+  WorldCity(
+    id: 'rome',
+    englishName: 'Rome',
+    chineseName: '罗马',
+    code: 'FCO',
+    englishRegion: 'Italy',
+    chineseRegion: '意大利',
+    timeZone: 'Europe/Rome',
+  ),
+  WorldCity(
+    id: 'amsterdam',
+    englishName: 'Amsterdam',
+    chineseName: '阿姆斯特丹',
+    code: 'AMS',
+    englishRegion: 'Netherlands',
+    chineseRegion: '荷兰',
+    timeZone: 'Europe/Amsterdam',
+  ),
+  WorldCity(
+    id: 'moscow',
+    englishName: 'Moscow',
+    chineseName: '莫斯科',
+    code: 'SVO',
+    englishRegion: 'Russia',
+    chineseRegion: '俄罗斯',
+    timeZone: 'Europe/Moscow',
+  ),
+  WorldCity(
+    id: 'istanbul',
+    englishName: 'Istanbul',
+    chineseName: '伊斯坦布尔',
+    code: 'IST',
+    englishRegion: 'Turkey',
+    chineseRegion: '土耳其',
+    timeZone: 'Europe/Istanbul',
+  ),
+  WorldCity(
+    id: 'zurich',
+    englishName: 'Zurich',
+    chineseName: '苏黎世',
+    code: 'ZRH',
+    englishRegion: 'Switzerland',
+    chineseRegion: '瑞士',
+    timeZone: 'Europe/Zurich',
+  ),
+  WorldCity(
+    id: 'stockholm',
+    englishName: 'Stockholm',
+    chineseName: '斯德哥尔摩',
+    code: 'ARN',
+    englishRegion: 'Sweden',
+    chineseRegion: '瑞典',
+    timeZone: 'Europe/Stockholm',
+  ),
+  WorldCity(
+    id: 'lisbon',
+    englishName: 'Lisbon',
+    chineseName: '里斯本',
+    code: 'LIS',
+    englishRegion: 'Portugal',
+    chineseRegion: '葡萄牙',
+    timeZone: 'Europe/Lisbon',
+  ),
+  WorldCity(
+    id: 'athens',
+    englishName: 'Athens',
+    chineseName: '雅典',
+    code: 'ATH',
+    englishRegion: 'Greece',
+    chineseRegion: '希腊',
+    timeZone: 'Europe/Athens',
+  ),
+  WorldCity(
+    id: 'reykjavik',
+    englishName: 'Reykjavik',
+    chineseName: '雷克雅未克',
+    code: 'KEF',
+    englishRegion: 'Iceland',
+    chineseRegion: '冰岛',
+    timeZone: 'Atlantic/Reykjavik',
+  ),
+  WorldCity(
+    id: 'new-york',
+    englishName: 'New York',
+    chineseName: '纽约',
+    code: 'JFK',
+    englishRegion: 'United States',
+    chineseRegion: '美国',
+    timeZone: 'America/New_York',
+  ),
+  WorldCity(
+    id: 'los-angeles',
+    englishName: 'Los Angeles',
+    chineseName: '洛杉矶',
+    code: 'LAX',
+    englishRegion: 'United States',
+    chineseRegion: '美国',
+    timeZone: 'America/Los_Angeles',
+  ),
+  WorldCity(
+    id: 'chicago',
+    englishName: 'Chicago',
+    chineseName: '芝加哥',
+    code: 'ORD',
+    englishRegion: 'United States',
+    chineseRegion: '美国',
+    timeZone: 'America/Chicago',
+  ),
+  WorldCity(
+    id: 'denver',
+    englishName: 'Denver',
+    chineseName: '丹佛',
+    code: 'DEN',
+    englishRegion: 'United States',
+    chineseRegion: '美国',
+    timeZone: 'America/Denver',
+  ),
+  WorldCity(
+    id: 'toronto',
+    englishName: 'Toronto',
+    chineseName: '多伦多',
+    code: 'YYZ',
+    englishRegion: 'Canada',
+    chineseRegion: '加拿大',
+    timeZone: 'America/Toronto',
+  ),
+  WorldCity(
+    id: 'vancouver',
+    englishName: 'Vancouver',
+    chineseName: '温哥华',
+    code: 'YVR',
+    englishRegion: 'Canada',
+    chineseRegion: '加拿大',
+    timeZone: 'America/Vancouver',
+  ),
+  WorldCity(
+    id: 'mexico-city',
+    englishName: 'Mexico City',
+    chineseName: '墨西哥城',
+    code: 'MEX',
+    englishRegion: 'Mexico',
+    chineseRegion: '墨西哥',
+    timeZone: 'America/Mexico_City',
+  ),
+  WorldCity(
+    id: 'sao-paulo',
+    englishName: 'Sao Paulo',
+    chineseName: '圣保罗',
+    code: 'GRU',
+    englishRegion: 'Brazil',
+    chineseRegion: '巴西',
+    timeZone: 'America/Sao_Paulo',
+  ),
+  WorldCity(
+    id: 'buenos-aires',
+    englishName: 'Buenos Aires',
+    chineseName: '布宜诺斯艾利斯',
+    code: 'EZE',
+    englishRegion: 'Argentina',
+    chineseRegion: '阿根廷',
+    timeZone: 'America/Argentina/Buenos_Aires',
+  ),
+  WorldCity(
+    id: 'honolulu',
+    englishName: 'Honolulu',
+    chineseName: '檀香山',
+    code: 'HNL',
+    englishRegion: 'United States',
+    chineseRegion: '美国',
+    timeZone: 'Pacific/Honolulu',
+  ),
+  WorldCity(
+    id: 'anchorage',
+    englishName: 'Anchorage',
+    chineseName: '安克雷奇',
+    code: 'ANC',
+    englishRegion: 'United States',
+    chineseRegion: '美国',
+    timeZone: 'America/Anchorage',
+  ),
+  WorldCity(
+    id: 'lima',
+    englishName: 'Lima',
+    chineseName: '利马',
+    code: 'LIM',
+    englishRegion: 'Peru',
+    chineseRegion: '秘鲁',
+    timeZone: 'America/Lima',
+  ),
+  WorldCity(
+    id: 'bogota',
+    englishName: 'Bogota',
+    chineseName: '波哥大',
+    code: 'BOG',
+    englishRegion: 'Colombia',
+    chineseRegion: '哥伦比亚',
+    timeZone: 'America/Bogota',
+  ),
+  WorldCity(
+    id: 'sydney',
+    englishName: 'Sydney',
+    chineseName: '悉尼',
+    code: 'SYD',
+    englishRegion: 'Australia',
+    chineseRegion: '澳大利亚',
+    timeZone: 'Australia/Sydney',
+  ),
+  WorldCity(
+    id: 'melbourne',
+    englishName: 'Melbourne',
+    chineseName: '墨尔本',
+    code: 'MEL',
+    englishRegion: 'Australia',
+    chineseRegion: '澳大利亚',
+    timeZone: 'Australia/Melbourne',
+  ),
+  WorldCity(
+    id: 'perth',
+    englishName: 'Perth',
+    chineseName: '珀斯',
+    code: 'PER',
+    englishRegion: 'Australia',
+    chineseRegion: '澳大利亚',
+    timeZone: 'Australia/Perth',
+  ),
+  WorldCity(
+    id: 'auckland',
+    englishName: 'Auckland',
+    chineseName: '奥克兰',
+    code: 'AKL',
+    englishRegion: 'New Zealand',
+    chineseRegion: '新西兰',
+    timeZone: 'Pacific/Auckland',
+  ),
+  WorldCity(
+    id: 'cairo',
+    englishName: 'Cairo',
+    chineseName: '开罗',
+    code: 'CAI',
+    englishRegion: 'Egypt',
+    chineseRegion: '埃及',
+    timeZone: 'Africa/Cairo',
+  ),
+  WorldCity(
+    id: 'johannesburg',
+    englishName: 'Johannesburg',
+    chineseName: '约翰内斯堡',
+    code: 'JNB',
+    englishRegion: 'South Africa',
+    chineseRegion: '南非',
+    timeZone: 'Africa/Johannesburg',
+  ),
+  WorldCity(
+    id: 'lagos',
+    englishName: 'Lagos',
+    chineseName: '拉各斯',
+    code: 'LOS',
+    englishRegion: 'Nigeria',
+    chineseRegion: '尼日利亚',
+    timeZone: 'Africa/Lagos',
+  ),
+  WorldCity(
+    id: 'nairobi',
+    englishName: 'Nairobi',
+    chineseName: '内罗毕',
+    code: 'NBO',
+    englishRegion: 'Kenya',
+    chineseRegion: '肯尼亚',
+    timeZone: 'Africa/Nairobi',
+  ),
+  WorldCity(
+    id: 'casablanca',
+    englishName: 'Casablanca',
+    chineseName: '卡萨布兰卡',
+    code: 'CAS',
+    englishRegion: 'Morocco',
+    chineseRegion: '摩洛哥',
+    timeZone: 'Africa/Casablanca',
+  ),
+];
+
+final Map<String, WorldCity> _worldCityIndex = {
+  for (final city in worldCities) city.id: city,
+};
+
+WorldCity? worldCityById(String id) => _worldCityIndex[id];
+
+bool _worldTimeZonesReady = false;
+final Map<String, tz.Location> _worldLocationCache = {};
+
+void ensureWorldTimeZones() {
+  if (_worldTimeZonesReady) return;
+  tzdata.initializeTimeZones();
+  _worldTimeZonesReady = true;
+}
+
+tz.Location _worldLocation(String timeZone) =>
+    _worldLocationCache.putIfAbsent(timeZone, () => tz.getLocation(timeZone));
+
+DateTime worldCityTime(WorldCity city, DateTime instant) {
+  final timeZone = city.timeZone;
+  if (timeZone == null) return instant;
+  ensureWorldTimeZones();
+  try {
+    return tz.TZDateTime.from(instant, _worldLocation(timeZone));
+  } catch (_) {
+    return instant.toUtc();
+  }
+}
+
+String worldClockOffsetLabel(Duration offset) {
+  final minutes = offset.inMinutes;
+  final sign = minutes < 0 ? '-' : '+';
+  final absolute = minutes.abs();
+  final hours = (absolute ~/ 60).toString().padLeft(2, '0');
+  final rest = (absolute % 60).toString().padLeft(2, '0');
+  return 'UTC$sign$hours:$rest';
+}
+
+bool worldClockIsDay(DateTime now) => now.hour >= 6 && now.hour < 18;
+
+class WorldClockSettings {
+  WorldClockSettings() : cityIds = [...defaultWorldCityIds];
+
+  List<String> cityIds;
+  bool use24Hour = true;
+  bool showSeconds = false;
+  bool showDate = true;
+
+  void resetCities() {
+    cityIds = [...defaultWorldCityIds];
+  }
+
+  void reset() {
+    resetCities();
+    use24Hour = true;
+    showSeconds = false;
+    showDate = true;
+  }
+
+  Map<String, dynamic> toJson() => {
+    'cities': cityIds,
+    'use24': use24Hour,
+    'seconds': showSeconds,
+    'date': showDate,
+  };
+
+  factory WorldClockSettings.fromJson(Map<String, dynamic> json) {
+    final settings = WorldClockSettings();
+    final cities = json['cities'];
+    if (cities is List) {
+      settings.cityIds.clear();
+      final seen = <String>{};
+      for (final value in cities) {
+        if (value is String &&
+            worldCityById(value) != null &&
+            seen.add(value)) {
+          settings.cityIds.add(value);
+        }
+      }
+    }
+    if (json['use24'] case final bool value) settings.use24Hour = value;
+    if (json['seconds'] case final bool value) settings.showSeconds = value;
+    if (json['date'] case final bool value) settings.showDate = value;
+    return settings;
+  }
+}
+
+const Color _worldBoardBackground = Color(0xff0b0f11);
+const Color _worldBoardSurface = Color(0xff141a1d);
+const Color _worldBoardCard = Color(0xff090c0e);
+const Color _worldBoardBorder = Color(0xff273136);
+const Color _worldBoardText = Color(0xfff2ece2);
+const Color _worldBoardMuted = Color(0xff8c989d);
+const Color _worldBoardAccent = Color(0xffe8b45a);
+const Color _worldBoardNight = Color(0xff82a9c9);
+
+class WorldClockScreen extends StatefulWidget {
+  const WorldClockScreen({super.key, this.preferences});
+
+  final LocalPreferences? preferences;
+
+  @override
+  State<WorldClockScreen> createState() => _WorldClockScreenState();
+}
+
+class _WorldClockScreenState extends State<WorldClockScreen>
+    with WidgetsBindingObserver {
+  late final LocalPreferences _preferences;
+  WorldClockSettings _settings = WorldClockSettings();
+  DateTime _now = DateTime.now();
+  Timer? _ticker;
+  Timer? _saveTimer;
+  bool _settingsTouched = false;
+  bool _backgrounded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    ensureWorldTimeZones();
+    _preferences =
+        widget.preferences ?? LocalPreferences.forFile('tool_world_clock.json');
+    WidgetsBinding.instance.addObserver(this);
+    _scheduleTick();
+    unawaited(_loadSettings());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _ticker?.cancel();
+    _saveTimer?.cancel();
+    if (_settingsTouched) unawaited(_saveSettings());
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _backgrounded = false;
+      setState(() => _now = DateTime.now());
+      _scheduleTick();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _backgrounded = true;
+      _ticker?.cancel();
+      _saveTimer?.cancel();
+      if (_settingsTouched) unawaited(_saveSettings());
+    }
+  }
+
+  void _scheduleTick() {
+    _ticker?.cancel();
+    if (_backgrounded) return;
+    final now = DateTime.now();
+    _ticker = Timer(Duration(milliseconds: 1000 - now.millisecond), () {
+      if (!mounted) return;
+      setState(() => _now = DateTime.now());
+      _scheduleTick();
+    });
+  }
+
+  Future<void> _loadSettings() async {
+    final raw = await _preferences.getString('settings');
+    if (!mounted || raw == null || _settingsTouched) return;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      final loaded = WorldClockSettings.fromJson(
+        Map<String, dynamic>.from(decoded),
+      );
+      setState(() => _settings = loaded);
+    } catch (_) {
+      // Keep the defaults when the stored data cannot be read.
+    }
+  }
+
+  Future<void> _saveSettings() async {
+    try {
+      await _preferences.setString('settings', jsonEncode(_settings.toJson()));
+    } catch (_) {}
+  }
+
+  void _scheduleSave() {
+    _settingsTouched = true;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 150), () {
+      unawaited(_saveSettings());
+    });
+  }
+
+  void _mutateSettings(VoidCallback update) {
+    setState(update);
+    _scheduleSave();
+  }
+
+  void _toggleCity(WorldCity city) {
+    _mutateSettings(() {
+      if (!_settings.cityIds.remove(city.id)) {
+        _settings.cityIds.add(city.id);
+      }
+    });
+  }
+
+  void _removeCity(String id) {
+    _mutateSettings(() => _settings.cityIds.remove(id));
+  }
+
+  Future<void> _openCityPicker() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final media = MediaQuery.of(sheetContext);
+        final inset = media.viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.only(bottom: inset),
+          child: SizedBox(
+            height: (media.size.height - inset) * 0.86,
+            child: _WorldCityPicker(
+              selectedIds: _settings.cityIds,
+              use24Hour: _settings.use24Hour,
+              onToggle: _toggleCity,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openBoardSettings() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          void refresh() => setSheetState(() {});
+          return _boardSettingsSheet(context, refresh);
+        },
+      ),
+    );
+  }
+
+  Widget _boardSettingsSheet(BuildContext context, VoidCallback refresh) {
+    final theme = Theme.of(context);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr(context, 'Board settings', '翻页牌设置'),
+              style: theme.textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              key: const ValueKey('world-clock-use24'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, '24-hour time', '24 小时制')),
+              subtitle: Text(
+                tr(
+                  context,
+                  'Airport boards normally use 24-hour time.',
+                  '机场翻页牌通常使用 24 小时制。',
+                ),
+              ),
+              value: _settings.use24Hour,
+              onChanged: (value) {
+                _mutateSettings(() => _settings.use24Hour = value);
+                refresh();
+              },
+            ),
+            SwitchListTile(
+              key: const ValueKey('world-clock-seconds'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Show seconds', '显示秒数')),
+              subtitle: Text(
+                tr(
+                  context,
+                  'Add a small seconds pair beside the minutes.',
+                  '在分钟右侧增加一组小秒数翻页。',
+                ),
+              ),
+              value: _settings.showSeconds,
+              onChanged: (value) {
+                _mutateSettings(() => _settings.showSeconds = value);
+                refresh();
+              },
+            ),
+            SwitchListTile(
+              key: const ValueKey('world-clock-date'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                tr(context, 'Date, offset and day/night', '日期、时差与昼夜'),
+              ),
+              subtitle: Text(
+                tr(
+                  context,
+                  'Show the local date, UTC offset and a day or night mark.',
+                  '显示当地日期、UTC 时差和昼夜标记。',
+                ),
+              ),
+              value: _settings.showDate,
+              onChanged: (value) {
+                _mutateSettings(() => _settings.showDate = value);
+                refresh();
+              },
+            ),
+            const Divider(height: 28),
+            ListTile(
+              key: const ValueKey('world-clock-reset'),
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.restart_alt),
+              title: Text(tr(context, 'Restore default cities', '恢复默认城市')),
+              subtitle: Text(
+                tr(
+                  context,
+                  'Local, London, New York and Tokyo.',
+                  '本地、伦敦、纽约和东京。',
+                ),
+              ),
+              onTap: () {
+                _mutateSettings(_settings.resetCities);
+                refresh();
+              },
+            ),
+            const SizedBox(height: 4),
+            Text(
+              tr(
+                context,
+                'Times include daylight saving and update every second.',
+                '时间包含夏令时，并每秒更新。',
+              ),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _boardHeader(BuildContext context, int count) {
+    final utc = _now.toUtc();
+    final utcTime =
+        '${utc.hour.toString().padLeft(2, '0')}:'
+        '${utc.minute.toString().padLeft(2, '0')}:'
+        '${utc.second.toString().padLeft(2, '0')}';
+    final date = MaterialLocalizations.of(context)
+        .formatMediumDate(_now)
+        .toUpperCase();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                color: _worldBoardAccent,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                tr(context, 'WORLD TIME', '世界时间'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 3.4,
+                  color: _worldBoardAccent,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'UTC $utcTime',
+              style: const TextStyle(
+                fontSize: 11,
+                letterSpacing: 1.2,
+                color: _worldBoardMuted,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '${tr(context, 'LIVE BOARD', '实时看板')} · $count '
+                '${tr(context, count == 1 ? 'CITY' : 'CITIES', '个城市')}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 10,
+                  letterSpacing: 1.4,
+                  color: _worldBoardMuted,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                date,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  fontSize: 10,
+                  letterSpacing: 1.4,
+                  color: _worldBoardMuted,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(height: 1, color: _worldBoardAccent.withValues(alpha: 0.22)),
+      ],
+    );
+  }
+
+  Widget _emptyBoard(BuildContext context) => Container(
+    key: const ValueKey('world-clock-empty'),
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(24, 42, 24, 36),
+    decoration: BoxDecoration(
+      color: _worldBoardSurface,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: _worldBoardBorder),
+    ),
+    child: Column(
+      children: [
+        const Icon(Icons.public, size: 42, color: _worldBoardAccent),
+        const SizedBox(height: 14),
+        Text(
+          tr(context, 'The board is empty', '看板还没有城市'),
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: _worldBoardText,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          tr(
+            context,
+            'Add a timezone to start the departures board.',
+            '添加一个时区，开始显示翻页牌。',
+          ),
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 13, color: _worldBoardMuted),
+        ),
+        const SizedBox(height: 18),
+        FilledButton.icon(
+          key: const ValueKey('world-clock-empty-add'),
+          onPressed: _openCityPicker,
+          icon: const Icon(Icons.add),
+          label: Text(tr(context, 'Add timezone', '添加时区')),
+        ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final cities = [for (final id in _settings.cityIds) ?worldCityById(id)];
+    return Scaffold(
+      backgroundColor: _worldBoardBackground,
+      appBar: AppBar(
+        backgroundColor: _worldBoardBackground,
+        foregroundColor: _worldBoardText,
+        surfaceTintColor: Colors.transparent,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        title: Text(tr(context, 'World Clock', '世界时钟')),
+        actions: [
+          IconButton(
+            key: const ValueKey('world-clock-add'),
+            tooltip: tr(context, 'Add timezone', '添加时区'),
+            onPressed: _openCityPicker,
+            icon: const Icon(Icons.add),
+          ),
+          IconButton(
+            key: const ValueKey('world-clock-settings'),
+            tooltip: tr(context, 'Board settings', '翻页牌设置'),
+            onPressed: _openBoardSettings,
+            icon: const Icon(Icons.tune),
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: _worldBoardBorder),
+        ),
+      ),
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [_worldBoardBackground, Color(0xff070a0b)],
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 860),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                children: [
+                  _boardHeader(context, cities.length),
+                  const SizedBox(height: 18),
+                  if (cities.isEmpty)
+                    _emptyBoard(context)
+                  else
+                    for (var index = 0; index < cities.length; index++) ...[
+                      _WorldClockRow(
+                        key: ValueKey('world-clock-city-${cities[index].id}'),
+                        city: cities[index],
+                        now: _now,
+                        use24Hour: _settings.use24Hour,
+                        showSeconds: _settings.showSeconds,
+                        showDate: _settings.showDate,
+                        onRemove: () => _removeCity(cities[index].id),
+                      ),
+                      if (index < cities.length - 1) const SizedBox(height: 12),
+                    ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WorldClockRow extends StatelessWidget {
+  const _WorldClockRow({
+    super.key,
+    required this.city,
+    required this.now,
+    required this.use24Hour,
+    required this.showSeconds,
+    required this.showDate,
+    required this.onRemove,
+  });
+
+  final WorldCity city;
+  final DateTime now;
+  final bool use24Hour;
+  final bool showSeconds;
+  final bool showDate;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final time = worldCityTime(city, now);
+    final digits = clockDigitsFor(time, use24Hour: use24Hour);
+    final offset = worldClockOffsetLabel(time.timeZoneOffset);
+    final zone = time.timeZoneName.trim();
+    final day = worldClockIsDay(time);
+    final date = MaterialLocalizations.of(context)
+        .formatMediumDate(time)
+        .toUpperCase();
+    final chineseLocale = Localizations.localeOf(context).languageCode == 'zh';
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 600;
+
+        Widget codeBadge() => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: _worldBoardAccent,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            city.code,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+              color: Color(0xff1d1305),
+            ),
+          ),
+        );
+
+        Widget cityTitle() => Text(
+          city.englishName.toUpperCase(),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: wide ? 22 : 20,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 2.4,
+            color: _worldBoardText,
+          ),
+        );
+
+        Widget citySubtitle() {
+          final region = tr(context, city.englishRegion, city.chineseRegion);
+          return Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              chineseLocale ? '${city.chineseName} · $region' : region,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                letterSpacing: 0.3,
+                color: _worldBoardMuted,
+              ),
+            ),
+          );
+        }
+
+        Widget removeButton() => IconButton(
+          key: ValueKey('world-clock-remove-${city.id}'),
+          tooltip: tr(
+            context,
+            'Remove ${city.englishName}',
+            '移除${city.chineseName}',
+          ),
+          onPressed: onRemove,
+          padding: EdgeInsets.zero,
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+          icon: const Icon(Icons.close, size: 18),
+          color: _worldBoardMuted,
+        );
+
+        Widget meta() => Padding(
+          key: ValueKey('world-clock-meta-${city.id}'),
+          padding: const EdgeInsets.only(top: 8),
+          child: Row(
+            children: [
+              Icon(
+                day ? Icons.wb_sunny_outlined : Icons.nightlight_outlined,
+                size: 13,
+                color: day ? _worldBoardAccent : _worldBoardNight,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                day ? tr(context, 'DAY', '白天') : tr(context, 'NIGHT', '夜间'),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1,
+                  color: day ? _worldBoardAccent : _worldBoardNight,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                '·',
+                style: TextStyle(fontSize: 10, color: _worldBoardMuted),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  '$date · $offset${zone.isEmpty ? '' : ' · $zone'}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    letterSpacing: 0.6,
+                    color: _worldBoardMuted,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+
+        Widget flipCard(String digit, double width) {
+          final height = width * 1.32;
+          return _FlipCard(
+            digit: digit,
+            width: width,
+            height: height,
+            background: _worldBoardCard,
+            foreground: _worldBoardText,
+            divider: _worldBoardBorder,
+          );
+        }
+
+        Widget pair(String value, double width) {
+          final gap = width * 0.09;
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              flipCard(value[0], width),
+              SizedBox(width: gap),
+              flipCard(value[1], width),
+            ],
+          );
+        }
+
+        Widget colonDots(double height, double width) {
+          Widget dot() => Container(
+            width: width * 0.24,
+            height: width * 0.24,
+            decoration: const BoxDecoration(
+              color: _worldBoardAccent,
+              shape: BoxShape.circle,
+            ),
+          );
+
+          return SizedBox(
+            width: width,
+            height: height,
+            child: Center(
+              child: Opacity(
+                opacity: time.second.isEven ? 1 : 0.55,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    dot(),
+                    SizedBox(height: height * 0.16),
+                    dot(),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        Widget timeGroup({required bool compact}) {
+          final width = compact ? 34.0 : 38.0;
+          final height = width * 1.32;
+          final colonWidth = compact ? 16.0 : 19.0;
+          final secondWidth = width * 0.7;
+          return Semantics(
+            label:
+                '${city.englishName} ${digits.hour}:${digits.minute}'
+                '${showSeconds ? ':${digits.second}' : ''} '
+                '${digits.period}',
+            child: Row(
+              key: ValueKey('world-clock-time-${city.id}'),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                pair(digits.hour, width),
+                colonDots(height, colonWidth),
+                pair(digits.minute, width),
+                if (showSeconds) ...[
+                  SizedBox(width: compact ? 6 : 8),
+                  Container(
+                    width: 1,
+                    height: height * 0.8,
+                    color: _worldBoardBorder,
+                  ),
+                  SizedBox(width: compact ? 6 : 8),
+                  KeyedSubtree(
+                    key: ValueKey('world-clock-seconds-${city.id}'),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        flipCard(digits.second[0], secondWidth),
+                        SizedBox(width: secondWidth * 0.09),
+                        flipCard(digits.second[1], secondWidth),
+                      ],
+                    ),
+                  ),
+                ],
+                if (digits.period.isNotEmpty) ...[
+                  SizedBox(width: compact ? 6 : 8),
+                  Text(
+                    digits.period,
+                    style: TextStyle(
+                      fontSize: compact ? 10 : 12,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1,
+                      color: _worldBoardAccent,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+        }
+
+        Widget content;
+        if (wide) {
+          content = Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        codeBadge(),
+                        const SizedBox(width: 10),
+                        Expanded(child: cityTitle()),
+                      ],
+                    ),
+                    citySubtitle(),
+                    if (showDate) meta(),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 18),
+              timeGroup(compact: false),
+            ],
+          );
+        } else {
+          content = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  codeBadge(),
+                  const SizedBox(width: 10),
+                  Expanded(child: cityTitle()),
+                ],
+              ),
+              citySubtitle(),
+              const SizedBox(height: 14),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: timeGroup(compact: true),
+              ),
+              if (showDate) meta(),
+            ],
+          );
+        }
+
+        return Container(
+          decoration: BoxDecoration(
+            color: _worldBoardSurface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: _worldBoardBorder),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            children: [
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                child: Container(
+                  width: 3,
+                  color: _worldBoardAccent.withValues(alpha: 0.6),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 46, 14),
+                child: content,
+              ),
+              Positioned(top: 4, right: 4, child: removeButton()),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _WorldCityPicker extends StatefulWidget {
+  const _WorldCityPicker({
+    required this.selectedIds,
+    required this.use24Hour,
+    required this.onToggle,
+  });
+
+  final List<String> selectedIds;
+  final bool use24Hour;
+  final ValueChanged<WorldCity> onToggle;
+
+  @override
+  State<_WorldCityPicker> createState() => _WorldCityPickerState();
+}
+
+class _WorldCityPickerState extends State<_WorldCityPicker> {
+  late final Set<String> _selected = widget.selectedIds.toSet();
+  late final TextEditingController _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  List<WorldCity> get _filtered {
+    final query = _query.trim().toLowerCase();
+    final cities = worldCities.where((city) {
+      if (query.isEmpty) return true;
+      return city.englishName.toLowerCase().contains(query) ||
+          city.chineseName.contains(query) ||
+          city.code.toLowerCase().contains(query) ||
+          city.englishRegion.toLowerCase().contains(query) ||
+          city.chineseRegion.contains(query) ||
+          (city.timeZone?.toLowerCase().contains(query) ?? false) ||
+          (city.isLocal && ('local'.contains(query) || '本地'.contains(query)));
+    }).toList();
+    cities.sort((a, b) {
+      if (a.isLocal) return -1;
+      if (b.isLocal) return 1;
+      return a.englishName.compareTo(b.englishName);
+    });
+    return cities;
+  }
+
+  void _toggle(WorldCity city) {
+    setState(() {
+      if (!_selected.remove(city.id)) _selected.add(city.id);
+    });
+    widget.onToggle(city);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final chineseLocale = Localizations.localeOf(context).languageCode == 'zh';
+    final cities = _filtered;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 8, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tr(context, 'Add cities', '添加城市'),
+                      style: theme.textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${_selected.length} ${tr(context, 'selected', '已选择')}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(
+                key: const ValueKey('world-clock-picker-done'),
+                onPressed: () => Navigator.pop(context),
+                child: Text(tr(context, 'Done', '完成')),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: TextField(
+            key: const ValueKey('world-clock-search'),
+            controller: _search,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              hintText: tr(
+                context,
+                'Search city, code or timezone',
+                '搜索城市、代码或时区',
+              ),
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            onChanged: (value) => setState(() => _query = value),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: cities.isEmpty
+              ? Center(
+                  child: Text(
+                    tr(context, 'No matching cities', '没有匹配的城市'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  key: const ValueKey('world-clock-picker-list'),
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 20),
+                  itemCount: cities.length,
+                  separatorBuilder: (_, _) =>
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                  itemBuilder: (context, index) {
+                    final city = cities[index];
+                    final time = worldCityTime(city, DateTime.now());
+                    final digits = clockDigitsFor(
+                      time,
+                      use24Hour: widget.use24Hour,
+                    );
+                    final offset = worldClockOffsetLabel(time.timeZoneOffset);
+                    final zone = time.timeZoneName.trim();
+                    return CheckboxListTile(
+                      key: ValueKey('world-clock-picker-${city.id}'),
+                      value: _selected.contains(city.id),
+                      onChanged: (_) => _toggle(city),
+                      controlAffinity: ListTileControlAffinity.trailing,
+                      secondary: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          city.code,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1,
+                            color: theme.colorScheme.onSecondaryContainer,
+                          ),
+                        ),
+                      ),
+                      title: Text(
+                        city.englishName.toUpperCase(),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.4,
+                        ),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            chineseLocale
+                                ? '${city.chineseName} · '
+                                      '${tr(context, city.englishRegion, city.chineseRegion)}'
+                                : tr(
+                                    context,
+                                    city.englishRegion,
+                                    city.chineseRegion,
+                                  ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            '${digits.hour}:${digits.minute}'
+                            '${digits.period.isNotEmpty ? ' ${digits.period}' : ''}'
+                            ' · $offset'
+                            '${zone.isEmpty ? '' : ' · $zone'}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      isThreeLine: true,
+                      dense: true,
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
 }
 
 class VaultNote {

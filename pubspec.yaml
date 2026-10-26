@@ -44,6 +44,7 @@ dependencies:
   flutter_soloud: ^5.2.1
   wakelock_plus: ^1.8.0
   window_manager: ^0.5.2
+  timezone: ^0.11.2
 
 dev_dependencies:
   flutter_test:
