@@ -73,7 +73,8 @@ void main() {
       ..cityIds = ['tokyo', 'paris', 'tokyo', 'missing']
       ..use24Hour = false
       ..showSeconds = true
-      ..showDate = false;
+      ..showDate = false
+      ..signMode = WorldSignMode.flip;
     final restored = WorldClockSettings.fromJson(
       jsonDecode(jsonEncode(settings.toJson())) as Map<String, dynamic>,
     );
@@ -81,12 +82,14 @@ void main() {
     expect(restored.use24Hour, isFalse);
     expect(restored.showSeconds, isTrue);
     expect(restored.showDate, isFalse);
+    expect(restored.signMode, WorldSignMode.flip);
 
     final defaults = WorldClockSettings();
     expect(defaults.cityIds, defaultWorldCityIds);
     expect(defaults.use24Hour, isTrue);
     expect(defaults.showSeconds, isFalse);
     expect(defaults.showDate, isTrue);
+    expect(defaults.signMode, WorldSignMode.text);
 
     final empty = WorldClockSettings.fromJson({'cities': <String>[]});
     expect(empty.cityIds, isEmpty);
@@ -96,17 +99,20 @@ void main() {
       'use24': 'yes',
       'seconds': 1,
       'date': null,
+      'signMode': 'hologram',
     });
     expect(invalid.cityIds, defaultWorldCityIds);
     expect(invalid.use24Hour, isTrue);
     expect(invalid.showSeconds, isFalse);
     expect(invalid.showDate, isTrue);
+    expect(invalid.signMode, WorldSignMode.text);
 
     settings.reset();
     expect(settings.cityIds, defaultWorldCityIds);
     expect(settings.use24Hour, isTrue);
     expect(settings.showSeconds, isFalse);
     expect(settings.showDate, isTrue);
+    expect(settings.signMode, WorldSignMode.text);
   });
 
   testWidgets('opens the world clock from the tool list', (tester) async {
@@ -236,7 +242,8 @@ void main() {
 
     final settings = WorldClockSettings()
       ..use24Hour = false
-      ..showSeconds = true;
+      ..showSeconds = true
+      ..signMode = WorldSignMode.flip;
     await tester.pumpWidget(
       worldClockApp(
         preferences: _MemoryPreferences({
@@ -253,6 +260,58 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('world-clock-seconds-local')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('switches city signs to flip cards and persists the mode', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final store = <String, String>{};
+    await tester.pumpWidget(
+      worldClockApp(preferences: _MemoryPreferences(store)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('NEW YORK'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('world-clock-sign-new-york')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('world-clock-settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Flip'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('world-clock-sign-new-york')),
+      findsOneWidget,
+    );
+    expect(find.text('NEW YORK'), findsNothing);
+
+    Navigator.of(
+      tester.element(find.byKey(const ValueKey('world-clock-settings'))),
+    ).pop();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    final saved = jsonDecode(store['settings']!) as Map<String, dynamic>;
+    expect(saved['signMode'], 'flip');
+
+    await tester.pumpWidget(
+      worldClockApp(
+        key: const ValueKey('reloaded'),
+        preferences: _MemoryPreferences(store),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('world-clock-sign-new-york')),
       findsOneWidget,
     );
   });

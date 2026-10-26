@@ -12908,6 +12908,20 @@ String worldClockOffsetLabel(Duration offset) {
 
 bool worldClockIsDay(DateTime now) => now.hour >= 6 && now.hour < 18;
 
+enum WorldSignMode { text, flip }
+
+extension WorldSignModeDetails on WorldSignMode {
+  String get englishName => switch (this) {
+    WorldSignMode.text => 'Text',
+    WorldSignMode.flip => 'Flip',
+  };
+
+  String get chineseName => switch (this) {
+    WorldSignMode.text => '文字',
+    WorldSignMode.flip => '翻页',
+  };
+}
+
 class WorldClockSettings {
   WorldClockSettings() : cityIds = [...defaultWorldCityIds];
 
@@ -12915,6 +12929,7 @@ class WorldClockSettings {
   bool use24Hour = true;
   bool showSeconds = false;
   bool showDate = true;
+  WorldSignMode signMode = WorldSignMode.text;
 
   void resetCities() {
     cityIds = [...defaultWorldCityIds];
@@ -12925,6 +12940,7 @@ class WorldClockSettings {
     use24Hour = true;
     showSeconds = false;
     showDate = true;
+    signMode = WorldSignMode.text;
   }
 
   Map<String, dynamic> toJson() => {
@@ -12932,6 +12948,7 @@ class WorldClockSettings {
     'use24': use24Hour,
     'seconds': showSeconds,
     'date': showDate,
+    'signMode': signMode.name,
   };
 
   factory WorldClockSettings.fromJson(Map<String, dynamic> json) {
@@ -12951,6 +12968,10 @@ class WorldClockSettings {
     if (json['use24'] case final bool value) settings.use24Hour = value;
     if (json['seconds'] case final bool value) settings.showSeconds = value;
     if (json['date'] case final bool value) settings.showDate = value;
+    settings.signMode = switch (json['signMode']) {
+      'flip' => WorldSignMode.flip,
+      _ => WorldSignMode.text,
+    };
     return settings;
   }
 }
@@ -13182,6 +13203,45 @@ class _WorldClockScreenState extends State<WorldClockScreen>
                 refresh();
               },
             ),
+            const SizedBox(height: 6),
+            Text(
+              tr(context, 'City sign', '城市牌样式'),
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            SegmentedButton<WorldSignMode>(
+              key: const ValueKey('world-clock-sign-mode'),
+              segments: [
+                for (final mode in WorldSignMode.values)
+                  ButtonSegment(
+                    value: mode,
+                    icon: Icon(
+                      mode == WorldSignMode.text
+                          ? Icons.title
+                          : Icons.flip_to_front_outlined,
+                    ),
+                    label: Text(
+                      tr(context, mode.englishName, mode.chineseName),
+                    ),
+                  ),
+              ],
+              selected: {_settings.signMode},
+              onSelectionChanged: (selection) {
+                _mutateSettings(() => _settings.signMode = selection.first);
+                refresh();
+              },
+            ),
+            const SizedBox(height: 6),
+            Text(
+              tr(
+                context,
+                'Flip turns every letter of the city name into a split-flap card.',
+                '翻页牌会把城市名的每个字母做成机械翻页卡片。',
+              ),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
             const Divider(height: 28),
             ListTile(
               key: const ValueKey('world-clock-reset'),
@@ -13404,6 +13464,7 @@ class _WorldClockScreenState extends State<WorldClockScreen>
                         use24Hour: _settings.use24Hour,
                         showSeconds: _settings.showSeconds,
                         showDate: _settings.showDate,
+                        signMode: _settings.signMode,
                         onRemove: () => _removeCity(cities[index].id),
                       ),
                       if (index < cities.length - 1) const SizedBox(height: 12),
@@ -13426,6 +13487,7 @@ class _WorldClockRow extends StatelessWidget {
     required this.use24Hour,
     required this.showSeconds,
     required this.showDate,
+    required this.signMode,
     required this.onRemove,
   });
 
@@ -13434,6 +13496,7 @@ class _WorldClockRow extends StatelessWidget {
   final bool use24Hour;
   final bool showSeconds;
   final bool showDate;
+  final WorldSignMode signMode;
   final VoidCallback onRemove;
 
   @override
@@ -13480,6 +13543,68 @@ class _WorldClockRow extends StatelessWidget {
             color: _worldBoardText,
           ),
         );
+
+        Widget flipSign({required bool wide}) {
+          final cardWidth = wide ? 20.0 : 16.0;
+          final cardHeight = wide ? 27.0 : 22.0;
+          final gap = wide ? 3.0 : 2.4;
+          final space = wide ? 10.0 : 8.0;
+          final letters = city.englishName.toUpperCase().split('');
+          final children = <Widget>[];
+          for (final letter in letters) {
+            if (letter == ' ') {
+              children.add(SizedBox(width: space));
+            } else {
+              children.add(
+                _FlipCard(
+                  digit: letter,
+                  width: cardWidth,
+                  height: cardHeight,
+                  background: _worldBoardCard,
+                  foreground: _worldBoardText,
+                  divider: _worldBoardBorder,
+                ),
+              );
+              children.add(SizedBox(width: gap));
+            }
+          }
+          if (children.isNotEmpty) children.removeLast();
+          return FittedBox(
+            key: ValueKey('world-clock-sign-${city.id}'),
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(mainAxisSize: MainAxisSize.min, children: children),
+          );
+        }
+
+        Widget cityHead({required bool wide}) {
+          if (signMode == WorldSignMode.text) {
+            return Row(
+              children: [
+                codeBadge(),
+                const SizedBox(width: 10),
+                Expanded(child: cityTitle()),
+              ],
+            );
+          }
+          if (wide) {
+            return Row(
+              children: [
+                codeBadge(),
+                const SizedBox(width: 10),
+                Expanded(child: flipSign(wide: true)),
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              codeBadge(),
+              const SizedBox(height: 8),
+              flipSign(wide: false),
+            ],
+          );
+        }
 
         Widget citySubtitle() {
           final region = tr(context, city.englishRegion, city.chineseRegion);
@@ -13673,13 +13798,7 @@ class _WorldClockRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      children: [
-                        codeBadge(),
-                        const SizedBox(width: 10),
-                        Expanded(child: cityTitle()),
-                      ],
-                    ),
+                    cityHead(wide: true),
                     citySubtitle(),
                     if (showDate) meta(),
                   ],
@@ -13694,13 +13813,7 @@ class _WorldClockRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  codeBadge(),
-                  const SizedBox(width: 10),
-                  Expanded(child: cityTitle()),
-                ],
-              ),
+              cityHead(wide: false),
               citySubtitle(),
               const SizedBox(height: 14),
               FittedBox(
