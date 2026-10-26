@@ -4,8 +4,28 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:wakelock_plus_platform_interface/wakelock_plus_platform_interface.dart';
 
 import 'package:pockito/main.dart';
+
+class _FakeWakelock extends WakelockPlusPlatformInterface {
+  _FakeWakelock({this.unavailable = false});
+
+  final bool unavailable;
+  bool isEnabled = false;
+
+  @override
+  Future<void> toggle({required bool enable}) async {
+    if (unavailable) {
+      throw PlatformException(code: 'unavailable');
+    }
+    isEnabled = enable;
+  }
+
+  @override
+  Future<bool> get enabled async => isEnabled;
+}
 
 class _MemoryPreferences extends LocalPreferences {
   _MemoryPreferences(this.values);
@@ -117,6 +137,8 @@ void main() {
     final settings = ClockSettings()
       ..loop = true
       ..layout = ClockLayout.landscape
+      ..theme = ClockThemeMode.dark
+      ..accent = 0xff1565c0
       ..use24Hour = false
       ..analogScale = 0.85
       ..analogShowDigital = false
@@ -156,6 +178,8 @@ void main() {
       'segmentPadding': 100,
       'segmentMargin': -5,
       'layout': 'diagonal',
+      'theme': 'sepia',
+      'accent': -1,
     });
     expect(clamped.analogScale, 1.2);
     expect(clamped.flipScale, 0.7);
@@ -166,6 +190,8 @@ void main() {
     expect(clamped.segmentPadding, 48);
     expect(clamped.segmentMargin, 0);
     expect(clamped.layout, ClockLayout.auto);
+    expect(clamped.theme, ClockThemeMode.app);
+    expect(clamped.accent, isNull);
   });
 
   test('clock settings reset sections independently', () {
@@ -235,11 +261,15 @@ void main() {
 
     settings.loop = true;
     settings.layout = ClockLayout.landscape;
+    settings.theme = ClockThemeMode.light;
+    settings.accent = 0xffff0000;
     settings.use24Hour = true;
     settings.analogShowDate = false;
     settings.resetAll();
     expect(settings.loop, isFalse);
     expect(settings.layout, ClockLayout.auto);
+    expect(settings.theme, ClockThemeMode.app);
+    expect(settings.accent, isNull);
     expect(settings.use24Hour, isNull);
     expect(settings.analogShowDate, isTrue);
     expect(settings.segmentShowDate, isTrue);
@@ -256,6 +286,8 @@ void main() {
     final preferences = LocalPreferences.forFile('clock.json', directory);
     final settings = ClockSettings()
       ..loop = true
+      ..theme = ClockThemeMode.dark
+      ..accent = 0xff7b1fa2
       ..binaryShowSeconds = false;
     await preferences.setString('settings', jsonEncode(settings.toJson()));
 
@@ -269,6 +301,8 @@ void main() {
     );
     expect(restored.loop, isTrue);
     expect(restored.binaryShowSeconds, isFalse);
+    expect(restored.theme, ClockThemeMode.dark);
+    expect(restored.accent, 0xff7b1fa2);
     expect(File('${directory.path}/clock.json').existsSync(), isTrue);
   });
 
@@ -285,6 +319,61 @@ void main() {
     expect(find.text('Analog'), findsOneWidget);
     expect(find.byKey(const ValueKey('clock-fullscreen')), findsOneWidget);
     expect(find.byKey(const ValueKey('clock-wakelock')), findsOneWidget);
+    expect(find.byKey(const ValueKey('clock-theme')), findsOneWidget);
+  });
+
+  testWidgets('shows the screen-on state with a display icon', (tester) async {
+    final previous = wakelockPlusPlatformInstance;
+    addTearDown(() => wakelockPlusPlatformInstance = previous);
+    final fake = _FakeWakelock();
+    wakelockPlusPlatformInstance = fake;
+
+    await tester.pumpWidget(clockApp());
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.desktop_windows), findsOneWidget);
+    expect(fake.isEnabled, isTrue);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('clock-wakelock')))
+          .tooltip,
+      'Keep screen on: on',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('clock-wakelock')));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.desktop_windows_outlined), findsOneWidget);
+    expect(fake.isEnabled, isFalse);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const ValueKey('clock-wakelock')))
+          .tooltip,
+      'Keep screen on: off',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('clock-wakelock')));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.desktop_windows), findsOneWidget);
+    expect(fake.isEnabled, isTrue);
+  });
+
+  testWidgets('disables the screen-on control when unsupported', (
+    tester,
+  ) async {
+    final previous = wakelockPlusPlatformInstance;
+    addTearDown(() => wakelockPlusPlatformInstance = previous);
+    wakelockPlusPlatformInstance = _FakeWakelock(unavailable: true);
+
+    await tester.pumpWidget(clockApp());
+    await tester.pumpAndSettle();
+
+    final button = tester.widget<IconButton>(
+      find.byKey(const ValueKey('clock-wakelock')),
+    );
+    expect(button.onPressed, isNull);
+    expect(button.tooltip, 'Keep screen on: unavailable');
+    expect(find.byIcon(Icons.desktop_windows_outlined), findsOneWidget);
   });
 
   testWidgets('swipes through all five clock faces', (tester) async {
@@ -316,6 +405,7 @@ void main() {
       find.byKey(const ValueKey('clock-wakelock-overlay')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('clock-theme-overlay')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('clock-exit-fullscreen')));
     await tester.pumpAndSettle();
@@ -800,6 +890,105 @@ void main() {
           .value,
       isTrue,
     );
+  });
+
+  testWidgets('switches only the clock theme and accent color', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final store = <String, String>{};
+    final preferences = _MemoryPreferences(store);
+
+    await tester.pumpWidget(clockApp(preferences: preferences));
+    await tester.pumpAndSettle();
+
+    ThemeData clockTheme() => Theme.of(tester.element(find.byType(PageView)));
+
+    expect(clockTheme().brightness, Brightness.light);
+    final before = clockTheme().colorScheme.primary;
+
+    await tester.tap(find.byKey(const ValueKey('clock-theme')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Clock appearance'), findsOneWidget);
+    expect(
+      find.text('Theme and accent color apply to this clock only.'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Dark'));
+    await tester.pumpAndSettle();
+    expect(clockTheme().brightness, Brightness.dark);
+    expect(
+      tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+      ThemeMode.system,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('clock-accent-blue')));
+    await tester.pumpAndSettle();
+    final accented = clockTheme().colorScheme.primary;
+    expect(accented, isNot(before));
+
+    await tester.tap(find.byKey(const ValueKey('clock-theme-close')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(clockTheme().brightness, Brightness.dark);
+    expect(clockTheme().colorScheme.primary, accented);
+
+    final saved = jsonDecode(store['settings']!) as Map<String, dynamic>;
+    expect(saved['theme'], 'dark');
+    expect(saved['accent'], 0xff1565c0);
+
+    await tester.pumpWidget(
+      clockApp(
+        key: const ValueKey('reloaded'),
+        preferences: _MemoryPreferences(store),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(clockTheme().brightness, Brightness.dark);
+    expect(clockTheme().colorScheme.primary, accented);
+  });
+
+  testWidgets('resets the clock appearance to follow the app', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final settings = ClockSettings()
+      ..theme = ClockThemeMode.dark
+      ..accent = 0xffff0000;
+    final preferences = _MemoryPreferences({
+      'settings': jsonEncode(settings.toJson()),
+    });
+
+    await tester.pumpWidget(clockApp(preferences: preferences));
+    await tester.pumpAndSettle();
+
+    expect(
+      Theme.of(tester.element(find.byType(PageView))).brightness,
+      Brightness.dark,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('clock-theme')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('clock-theme-reset')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('clock-theme-close')));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(
+      Theme.of(tester.element(find.byType(PageView))).brightness,
+      Brightness.light,
+    );
+    final saved =
+        jsonDecode(preferences.values['settings']!) as Map<String, dynamic>;
+    expect(saved['theme'], 'app');
+    expect(saved['accent'], isNull);
   });
 
   testWidgets('shows and configures the 8-segment clock', (tester) async {

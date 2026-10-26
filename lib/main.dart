@@ -8917,6 +8917,47 @@ extension ClockLayoutDetails on ClockLayout {
   };
 }
 
+enum ClockThemeMode { app, light, dark }
+
+extension ClockThemeModeDetails on ClockThemeMode {
+  String get englishName => switch (this) {
+    ClockThemeMode.app => 'App',
+    ClockThemeMode.light => 'Light',
+    ClockThemeMode.dark => 'Dark',
+  };
+
+  String get chineseName => switch (this) {
+    ClockThemeMode.app => '应用',
+    ClockThemeMode.light => '浅色',
+    ClockThemeMode.dark => '深色',
+  };
+}
+
+class ClockAccentPreset {
+  const ClockAccentPreset(
+    this.id,
+    this.englishName,
+    this.chineseName,
+    this.color,
+  );
+
+  final String id;
+  final String englishName;
+  final String chineseName;
+  final int color;
+}
+
+const clockAccentPresets = <ClockAccentPreset>[
+  ClockAccentPreset('teal', 'Teal', '青色', 0xff007c72),
+  ClockAccentPreset('blue', 'Blue', '蓝色', 0xff1565c0),
+  ClockAccentPreset('indigo', 'Indigo', '靛蓝', 0xff3949ab),
+  ClockAccentPreset('purple', 'Purple', '紫色', 0xff7b1fa2),
+  ClockAccentPreset('pink', 'Pink', '粉色', 0xffc2185b),
+  ClockAccentPreset('orange', 'Orange', '橙色', 0xffe65100),
+  ClockAccentPreset('green', 'Green', '绿色', 0xff2e7d32),
+  ClockAccentPreset('slate', 'Slate', '石墨', 0xff455a64),
+];
+
 enum ClockFace { analog, flip, binary, big, segment }
 
 extension ClockFaceDetails on ClockFace {
@@ -8975,6 +9016,8 @@ class ClockSettings {
 
   bool loop = false;
   ClockLayout layout = ClockLayout.auto;
+  ClockThemeMode theme = ClockThemeMode.app;
+  int? accent;
   bool? use24Hour;
   double analogScale = 1;
   bool analogShowDigital = true;
@@ -9004,6 +9047,11 @@ class ClockSettings {
     loop = false;
     layout = ClockLayout.auto;
     use24Hour = null;
+  }
+
+  void resetAppearance() {
+    theme = ClockThemeMode.app;
+    accent = null;
   }
 
   void resetAnalog() {
@@ -9046,6 +9094,7 @@ class ClockSettings {
 
   void resetAll() {
     resetGeneral();
+    resetAppearance();
     resetAnalog();
     resetFlip();
     resetBinary();
@@ -9056,6 +9105,8 @@ class ClockSettings {
   Map<String, dynamic> toJson() => {
     'loop': loop,
     'layout': layout.name,
+    'theme': theme.name,
+    'accent': accent,
     'use24': use24Hour,
     'analogScale': analogScale,
     'analogDigital': analogShowDigital,
@@ -9090,6 +9141,18 @@ class ClockSettings {
       'landscape' => ClockLayout.landscape,
       _ => ClockLayout.auto,
     };
+    settings.theme = switch (json['theme']) {
+      'light' => ClockThemeMode.light,
+      'dark' => ClockThemeMode.dark,
+      _ => ClockThemeMode.app,
+    };
+    final accent = json['accent'];
+    if (accent is num) {
+      final value = accent.toInt();
+      if (value >= 0 && value <= 0xffffffff) {
+        settings.accent = value;
+      }
+    }
     final use24 = json['use24'];
     if (use24 is bool) settings.use24Hour = use24;
     settings.analogScale = _readScale(json['analogScale']);
@@ -9205,6 +9268,34 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     ClockLayout.auto =>
       MediaQuery.of(context).orientation == Orientation.portrait,
   };
+
+  ThemeData? _cachedClockTheme;
+  (ClockThemeMode, int?, Brightness, Color)? _cachedClockThemeKey;
+
+  ThemeData _clockTheme(BuildContext context) {
+    final ambient = Theme.of(context);
+    final mode = _settings.theme;
+    final accent = _settings.accent;
+    if (mode == ClockThemeMode.app && accent == null) return ambient;
+    final brightness = switch (mode) {
+      ClockThemeMode.app => ambient.brightness,
+      ClockThemeMode.light => Brightness.light,
+      ClockThemeMode.dark => Brightness.dark,
+    };
+    final seed = accent == null ? ambient.colorScheme.primary : Color(accent);
+    final key = (mode, accent, brightness, seed);
+    if (_cachedClockTheme != null && _cachedClockThemeKey == key) {
+      return _cachedClockTheme!;
+    }
+    final scheme = ColorScheme.fromSeed(
+      seedColor: seed,
+      brightness: brightness,
+    );
+    final theme = ThemeData(colorScheme: scheme, useMaterial3: true);
+    _cachedClockTheme = theme;
+    _cachedClockThemeKey = key;
+    return theme;
+  }
 
   @override
   void initState() {
@@ -9475,25 +9566,29 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openClockSettings() async {
+    final sheetTheme = _clockTheme(context);
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
       useSafeArea: true,
+      backgroundColor: sheetTheme.colorScheme.surfaceContainerLow,
       builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            void refresh() => setSheetState(() {});
-            return Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: 620,
-                  maxHeight: MediaQuery.sizeOf(context).height * 0.84,
+        return Theme(
+          data: sheetTheme,
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              void refresh() => setSheetState(() {});
+              return Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: 620,
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.84,
+                  ),
+                  child: _clockSettingsSheet(context, refresh),
                 ),
-                child: _clockSettingsSheet(context, refresh),
-              ),
-            );
-          },
+              );
+            },
+          ),
         );
       },
     );
@@ -9501,10 +9596,23 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
 
   Widget _clockSettingsSheet(BuildContext context, VoidCallback refresh) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const SizedBox(height: 8),
+        Center(
+          child: Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 8, 8),
           child: Row(
@@ -10107,14 +10215,221 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
     return IconButton(
       key: buttonKey,
       tooltip: _wakeLockUnavailable
-          ? tr(context, 'Wake lock unavailable', '无法保持屏幕常亮')
+          ? tr(context, 'Keep screen on: unavailable', '屏幕常亮：不可用')
           : _keepAwake
-          ? tr(context, 'Screen stays on', '屏幕保持常亮')
-          : tr(context, 'Keep screen on', '保持屏幕常亮'),
+          ? tr(context, 'Keep screen on: on', '屏幕常亮：开')
+          : tr(context, 'Keep screen on: off', '屏幕常亮：关'),
+      isSelected: _keepAwake,
       onPressed: _wakeLockUnavailable ? null : () => _setKeepAwake(!_keepAwake),
       icon: Icon(
-        _keepAwake ? Icons.wb_sunny : Icons.wb_sunny_outlined,
-        color: _keepAwake ? scheme.primary : null,
+        _keepAwake ? Icons.desktop_windows : Icons.desktop_windows_outlined,
+        color: _wakeLockUnavailable
+            ? null
+            : _keepAwake
+            ? scheme.primary
+            : scheme.onSurfaceVariant,
+      ),
+    );
+  }
+
+  Widget _appearanceButton(BuildContext context, {required Key buttonKey}) {
+    final scheme = Theme.of(context).colorScheme;
+    final custom =
+        _settings.theme != ClockThemeMode.app || _settings.accent != null;
+    return IconButton(
+      key: buttonKey,
+      tooltip: tr(context, 'Clock appearance', '时钟外观'),
+      onPressed: _openClockAppearance,
+      icon: Icon(Icons.palette_outlined, color: custom ? scheme.primary : null),
+    );
+  }
+
+  Future<void> _openClockAppearance() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            void refresh() => setSheetState(() {});
+            final theme = _clockTheme(context);
+            return Theme(
+              data: theme,
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: Material(
+                    key: const ValueKey('clock-theme-sheet'),
+                    color: theme.colorScheme.surfaceContainerLow,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(28),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: _clockAppearanceContent(context, refresh),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _clockAppearanceContent(BuildContext context, VoidCallback refresh) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    void apply(VoidCallback update) {
+      _mutateSettings(update);
+      refresh();
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: scheme.onSurfaceVariant.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Icon(Icons.palette_outlined, size: 20, color: scheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  tr(context, 'Clock appearance', '时钟外观'),
+                  style: theme.textTheme.titleMedium,
+                ),
+              ),
+              IconButton(
+                key: const ValueKey('clock-theme-reset'),
+                tooltip: tr(context, 'Reset appearance', '重置外观'),
+                onPressed: () => apply(_settings.resetAppearance),
+                icon: const Icon(Icons.restart_alt),
+              ),
+              IconButton(
+                key: const ValueKey('clock-theme-close'),
+                tooltip: tr(context, 'Close', '关闭'),
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          Text(
+            tr(
+              context,
+              'Theme and accent color apply to this clock only.',
+              '主题和强调色仅作用于时钟界面。',
+            ),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(tr(context, 'Theme', '主题'), style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 8),
+          SegmentedButton<ClockThemeMode>(
+            key: const ValueKey('clock-theme-mode'),
+            segments: [
+              for (final mode in ClockThemeMode.values)
+                ButtonSegment(
+                  value: mode,
+                  icon: Icon(switch (mode) {
+                    ClockThemeMode.app => Icons.auto_mode,
+                    ClockThemeMode.light => Icons.light_mode_outlined,
+                    ClockThemeMode.dark => Icons.dark_mode_outlined,
+                  }),
+                  label: Text(tr(context, mode.englishName, mode.chineseName)),
+                ),
+            ],
+            selected: {_settings.theme},
+            onSelectionChanged: (selection) {
+              apply(() => _settings.theme = selection.first);
+            },
+          ),
+          const SizedBox(height: 18),
+          Text(
+            tr(context, 'Accent color', '强调色'),
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _clockAccentSwatch(context, null, refresh),
+              for (final preset in clockAccentPresets)
+                _clockAccentSwatch(context, preset, refresh),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _clockAccentSwatch(
+    BuildContext context,
+    ClockAccentPreset? preset,
+    VoidCallback refresh,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = _settings.accent == preset?.color;
+    final color = preset == null ? scheme.primary : Color(preset.color);
+    final label = preset == null
+        ? tr(context, 'Follow app color', '跟随应用颜色')
+        : tr(context, preset.englishName, preset.chineseName);
+    final foreground =
+        ThemeData.estimateBrightnessForColor(color) == Brightness.dark
+        ? Colors.white
+        : Colors.black87;
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: label,
+        child: InkWell(
+          key: ValueKey(
+            preset == null ? 'clock-accent-auto' : 'clock-accent-${preset.id}',
+          ),
+          customBorder: const CircleBorder(),
+          onTap: () {
+            _mutateSettings(() => _settings.accent = preset?.color);
+            refresh();
+          },
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: selected ? scheme.onSurface : scheme.outlineVariant,
+                width: selected ? 3 : 1,
+              ),
+            ),
+            child: preset == null
+                ? Icon(Icons.auto_mode, size: 18, color: foreground)
+                : selected
+                ? Icon(Icons.check, size: 18, color: foreground)
+                : null,
+          ),
+        ),
       ),
     );
   }
@@ -10225,6 +10540,10 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      _appearanceButton(
+                        context,
+                        buttonKey: const ValueKey('clock-theme-overlay'),
+                      ),
                       _wakelockButton(
                         context,
                         buttonKey: const ValueKey('clock-wakelock-overlay'),
@@ -10336,82 +10655,95 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final use24Hour = _resolveUse24Hour(context);
     final portrait = _usePortrait(context);
-    final pages = PageView.builder(
-      key: ValueKey('clock-pages-${_settings.loop ? 'loop' : 'finite'}'),
-      controller: _pageController,
-      itemCount: _settings.loop ? null : _faces.length,
-      onPageChanged: (page) {
-        final index = _settings.loop ? page % _faces.length : page;
-        if (index != _faceIndex) setState(() => _faceIndex = index);
-      },
-      itemBuilder: (context, page) {
-        final face = _faces[_settings.loop ? page % _faces.length : page];
-        return _buildFace(face, use24Hour, portrait);
-      },
-    );
-    final body = _fullscreen
-        ? Stack(
-            children: [
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _toggleControls,
-                  child: pages,
+    final clockTheme = _clockTheme(context);
+    return Theme(
+      data: clockTheme,
+      child: Builder(
+        builder: (context) {
+          final pages = PageView.builder(
+            key: ValueKey('clock-pages-${_settings.loop ? 'loop' : 'finite'}'),
+            controller: _pageController,
+            itemCount: _settings.loop ? null : _faces.length,
+            onPageChanged: (page) {
+              final index = _settings.loop ? page % _faces.length : page;
+              if (index != _faceIndex) setState(() => _faceIndex = index);
+            },
+            itemBuilder: (context, page) {
+              final face = _faces[_settings.loop ? page % _faces.length : page];
+              return _buildFace(face, use24Hour, portrait);
+            },
+          );
+          final body = _fullscreen
+              ? Stack(
+                  children: [
+                    Positioned.fill(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: _toggleControls,
+                        child: pages,
+                      ),
+                    ),
+                    _fullscreenOverlay(context),
+                  ],
+                )
+              : Column(
+                  children: [
+                    Expanded(child: pages),
+                    _bottomBar(context),
+                  ],
+                );
+          return CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.escape): () {
+                if (_fullscreen) _setFullscreen(false);
+              },
+              const SingleActivator(LogicalKeyboardKey.keyF): () =>
+                  _setFullscreen(!_fullscreen),
+              const SingleActivator(LogicalKeyboardKey.arrowLeft):
+                  _previousFace,
+              const SingleActivator(LogicalKeyboardKey.arrowRight): _nextFace,
+            },
+            child: Focus(
+              autofocus: true,
+              child: PopScope(
+                canPop: !_fullscreen,
+                onPopInvokedWithResult: (didPop, result) {
+                  if (!didPop && _fullscreen) _setFullscreen(false);
+                },
+                child: Scaffold(
+                  appBar: _fullscreen
+                      ? null
+                      : AppBar(
+                          title: Text(tr(context, 'Clock', '时钟')),
+                          actions: [
+                            _appearanceButton(
+                              context,
+                              buttonKey: const ValueKey('clock-theme'),
+                            ),
+                            _wakelockButton(
+                              context,
+                              buttonKey: const ValueKey('clock-wakelock'),
+                            ),
+                            IconButton(
+                              key: const ValueKey('clock-settings'),
+                              tooltip: tr(context, 'Clock settings', '时钟设置'),
+                              onPressed: _openClockSettings,
+                              icon: const Icon(Icons.tune),
+                            ),
+                            IconButton(
+                              key: const ValueKey('clock-fullscreen'),
+                              tooltip: tr(context, 'Fullscreen', '全屏'),
+                              onPressed: () => _setFullscreen(true),
+                              icon: const Icon(Icons.fullscreen),
+                            ),
+                          ],
+                        ),
+                  body: body,
                 ),
               ),
-              _fullscreenOverlay(context),
-            ],
-          )
-        : Column(
-            children: [
-              Expanded(child: pages),
-              _bottomBar(context),
-            ],
+            ),
           );
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_fullscreen) _setFullscreen(false);
         },
-        const SingleActivator(LogicalKeyboardKey.keyF): () =>
-            _setFullscreen(!_fullscreen),
-        const SingleActivator(LogicalKeyboardKey.arrowLeft): _previousFace,
-        const SingleActivator(LogicalKeyboardKey.arrowRight): _nextFace,
-      },
-      child: Focus(
-        autofocus: true,
-        child: PopScope(
-          canPop: !_fullscreen,
-          onPopInvokedWithResult: (didPop, result) {
-            if (!didPop && _fullscreen) _setFullscreen(false);
-          },
-          child: Scaffold(
-            appBar: _fullscreen
-                ? null
-                : AppBar(
-                    title: Text(tr(context, 'Clock', '时钟')),
-                    actions: [
-                      _wakelockButton(
-                        context,
-                        buttonKey: const ValueKey('clock-wakelock'),
-                      ),
-                      IconButton(
-                        key: const ValueKey('clock-settings'),
-                        tooltip: tr(context, 'Clock settings', '时钟设置'),
-                        onPressed: _openClockSettings,
-                        icon: const Icon(Icons.tune),
-                      ),
-                      IconButton(
-                        key: const ValueKey('clock-fullscreen'),
-                        tooltip: tr(context, 'Fullscreen', '全屏'),
-                        onPressed: () => _setFullscreen(true),
-                        icon: const Icon(Icons.fullscreen),
-                      ),
-                    ],
-                  ),
-            body: body,
-          ),
-        ),
       ),
     );
   }
