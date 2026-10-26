@@ -102,6 +102,15 @@ void main() {
       expect(clockBinaryBit(9, 8), isTrue);
       expect(clockBinaryBit(9, 1), isTrue);
     });
+
+    test('segment masks describe the eight-segment digits', () {
+      expect(segmentDigitMasks, hasLength(10));
+      expect(segmentDigitMasks[0], 63);
+      expect(segmentDigitMasks[1], 6);
+      expect(segmentDigitMasks[2], 91);
+      expect(segmentDigitMasks[8], 127);
+      expect(segmentDigitMasks[9], 111);
+    });
   });
 
   test('clock settings round-trip and clamp invalid values', () {
@@ -122,7 +131,15 @@ void main() {
       ..binaryShowDigital = false
       ..binaryShowDate = false
       ..bigShowDate = false
-      ..bigShowSeconds = false;
+      ..bigShowSeconds = false
+      ..segmentScale = 1.1
+      ..segmentShowSeconds = false
+      ..segmentShowDate = false
+      ..segmentColor = segmentColorOptions[2].toARGB32()
+      ..segmentShowBorder = false
+      ..segmentBorderWidth = 2.5
+      ..segmentPadding = 32
+      ..segmentMargin = 16;
     final restored = ClockSettings.fromJson(
       jsonDecode(jsonEncode(settings.toJson())) as Map<String, dynamic>,
     );
@@ -132,10 +149,20 @@ void main() {
       'analogScale': 99,
       'flipScale': 0.1,
       'bigDate': 'not a bool',
+      'segmentScale': 5,
+      'segmentBorderWidth': 99,
+      'segmentColor': -1,
+      'segmentPadding': 100,
+      'segmentMargin': -5,
     });
     expect(clamped.analogScale, 1.2);
     expect(clamped.flipScale, 0.7);
     expect(clamped.bigShowDate, isTrue);
+    expect(clamped.segmentScale, 1.2);
+    expect(clamped.segmentBorderWidth, 3);
+    expect(clamped.segmentColor, defaultSegmentColor);
+    expect(clamped.segmentPadding, 48);
+    expect(clamped.segmentMargin, 0);
   });
 
   test('clock settings reset sections independently', () {
@@ -156,7 +183,15 @@ void main() {
       ..binaryShowDigital = false
       ..binaryShowDate = false
       ..bigShowDate = false
-      ..bigShowSeconds = false;
+      ..bigShowSeconds = false
+      ..segmentScale = 0.7
+      ..segmentShowSeconds = false
+      ..segmentShowDate = false
+      ..segmentColor = segmentColorOptions[3].toARGB32()
+      ..segmentShowBorder = false
+      ..segmentBorderWidth = 3
+      ..segmentPadding = 36
+      ..segmentMargin = 24;
 
     settings.resetAnalog();
     expect(settings.analogScale, 1);
@@ -179,6 +214,20 @@ void main() {
     settings.resetBig();
     expect(settings.bigShowDate, isTrue);
     expect(settings.bigShowSeconds, isTrue);
+    expect(settings.segmentScale, 0.7);
+
+    settings.resetSegment();
+    expect(settings.segmentScale, 1);
+    expect(settings.segmentShowSeconds, isTrue);
+    expect(settings.segmentShowDate, isTrue);
+    expect(settings.segmentColor, defaultSegmentColor);
+    expect(settings.segmentShowBorder, isTrue);
+    expect(settings.segmentBorderWidth, 1);
+    expect(settings.segmentPadding, 20);
+    expect(settings.segmentMargin, 0);
+
+    settings.segmentShowDate = false;
+    settings.segmentShowSeconds = false;
 
     settings.loop = true;
     settings.use24Hour = true;
@@ -187,6 +236,8 @@ void main() {
     expect(settings.loop, isFalse);
     expect(settings.use24Hour, isNull);
     expect(settings.analogShowDate, isTrue);
+    expect(settings.segmentShowDate, isTrue);
+    expect(settings.segmentShowSeconds, isTrue);
   });
 
   test('clock settings persist in a local preferences file', () async {
@@ -230,12 +281,12 @@ void main() {
     expect(find.byKey(const ValueKey('clock-wakelock')), findsOneWidget);
   });
 
-  testWidgets('swipes through all four clock faces', (tester) async {
+  testWidgets('swipes through all five clock faces', (tester) async {
     await tester.pumpWidget(clockApp());
     await tester.pumpAndSettle();
 
     expect(find.text('Analog'), findsOneWidget);
-    for (final face in const ['Flip', 'Binary', 'Big digits']) {
+    for (final face in const ['Flip', 'Binary', 'Big digits', '8-segment']) {
       await tester.drag(find.byType(PageView), const Offset(-700, 0));
       await tester.pumpAndSettle();
       expect(find.text(face), findsOneWidget);
@@ -343,7 +394,7 @@ void main() {
 
     await tester.drag(find.byType(PageView), const Offset(700, 0));
     await tester.pumpAndSettle();
-    expect(find.text('Big digits'), findsOneWidget);
+    expect(find.text('8-segment'), findsOneWidget);
   });
 
   testWidgets('hides flip seconds and calendar date from settings', (
@@ -740,6 +791,214 @@ void main() {
           .value,
       isTrue,
     );
+  });
+
+  testWidgets('shows and configures the 8-segment clock', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(clockApp(face: ClockFace.segment));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('segment-panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('segment-seconds')), findsOneWidget);
+    expect(find.byKey(const ValueKey('segment-date')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings')));
+    await tester.pumpAndSettle();
+
+    final seconds = find.byKey(const ValueKey('clock-segment-seconds'));
+    await tester.ensureVisible(seconds);
+    await tester.pump();
+    await tester.tap(seconds);
+    await tester.pump();
+
+    final date = find.byKey(const ValueKey('clock-segment-date'));
+    await tester.ensureVisible(date);
+    await tester.pump();
+    await tester.tap(date);
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings-close')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('segment-seconds')), findsNothing);
+    expect(find.byKey(const ValueKey('segment-date')), findsNothing);
+  });
+
+  testWidgets('scales the 8-segment display from settings', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(clockApp(face: ClockFace.segment));
+    await tester.pumpAndSettle();
+
+    final before = tester.getSize(find.byKey(const ValueKey('segment-panel')));
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings')));
+    await tester.pumpAndSettle();
+
+    final slider = find.byKey(const ValueKey('clock-segment-scale'));
+    await tester.ensureVisible(slider);
+    await tester.drag(slider, const Offset(-80, 0));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings-close')));
+    await tester.pumpAndSettle();
+
+    final after = tester.getSize(find.byKey(const ValueKey('segment-panel')));
+    expect(after.width, lessThan(before.width));
+  });
+
+  testWidgets('changes the 8-segment color', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(clockApp(face: ClockFace.segment));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings')));
+    await tester.pumpAndSettle();
+
+    final swatch = find.byKey(const ValueKey('clock-segment-color-2'));
+    await tester.ensureVisible(swatch);
+    await tester.pump();
+    await tester.tap(swatch);
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings-close')));
+    await tester.pumpAndSettle();
+
+    final panel = tester.widget<Container>(
+      find.byKey(const ValueKey('segment-panel')),
+    );
+    final decoration = panel.decoration! as BoxDecoration;
+    final border = decoration.border! as Border;
+    expect(border.top.color, segmentColorOptions[2].withValues(alpha: 0.28));
+    expect(border.top.width, 1);
+  });
+
+  testWidgets('controls the 8-segment border', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(clockApp(face: ClockFace.segment));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings')));
+    await tester.pumpAndSettle();
+
+    final toggle = find.byKey(const ValueKey('clock-segment-border'));
+    await tester.ensureVisible(toggle);
+    await tester.pump();
+    await tester.tap(toggle);
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings-close')));
+    await tester.pumpAndSettle();
+
+    var panel = tester.widget<Container>(
+      find.byKey(const ValueKey('segment-panel')),
+    );
+    expect((panel.decoration! as BoxDecoration).border, isNull);
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings')));
+    await tester.pumpAndSettle();
+
+    final toggleAgain = find.byKey(const ValueKey('clock-segment-border'));
+    await tester.ensureVisible(toggleAgain);
+    await tester.pump();
+    await tester.tap(toggleAgain);
+    await tester.pump();
+
+    final widthSlider = find.byKey(
+      const ValueKey('clock-segment-border-width'),
+    );
+    await tester.ensureVisible(widthSlider);
+    await tester.pump();
+    await tester.drag(widthSlider, const Offset(80, 0));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings-close')));
+    await tester.pumpAndSettle();
+
+    panel = tester.widget<Container>(
+      find.byKey(const ValueKey('segment-panel')),
+    );
+    final border = (panel.decoration! as BoxDecoration).border! as Border;
+    expect(border.top.width, greaterThan(1));
+    expect(
+      border.top.color,
+      const Color(defaultSegmentColor).withValues(alpha: 0.28),
+    );
+  });
+
+  testWidgets('adjusts the 8-segment padding and margin', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(clockApp(face: ClockFace.segment));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings')));
+    await tester.pumpAndSettle();
+
+    final padding = find.byKey(const ValueKey('clock-segment-padding'));
+    await tester.ensureVisible(padding);
+    await tester.pump();
+    await tester.drag(padding, const Offset(80, 0));
+    await tester.pumpAndSettle();
+
+    final margin = find.byKey(const ValueKey('clock-segment-margin'));
+    await tester.ensureVisible(margin);
+    await tester.pump();
+    await tester.drag(margin, const Offset(80, 0));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('clock-settings-close')));
+    await tester.pumpAndSettle();
+
+    final panel = tester.widget<Container>(
+      find.byKey(const ValueKey('segment-panel')),
+    );
+    final paddingInsets = panel.padding! as EdgeInsets;
+    final marginInsets = panel.margin! as EdgeInsets;
+    expect(paddingInsets.left, greaterThan(20));
+    expect(marginInsets.left, greaterThan(0));
+  });
+
+  testWidgets('fits the 8-segment panel at large padding and margin', (
+    tester,
+  ) async {
+    final settings = ClockSettings()
+      ..segmentPadding = 48
+      ..segmentMargin = 48
+      ..segmentScale = 1.2;
+    final store = <String, String>{'settings': jsonEncode(settings.toJson())};
+    final preferences = _MemoryPreferences(store);
+
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    for (final size in const [Size(390, 844), Size(844, 390)]) {
+      tester.view.physicalSize = size;
+      await tester.pumpWidget(
+        clockApp(
+          face: ClockFace.segment,
+          key: ValueKey(size),
+          preferences: preferences,
+        ),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('segment-panel')), findsOneWidget);
+    }
   });
 
   testWidgets('lays out every face in portrait and landscape', (tester) async {

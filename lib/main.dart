@@ -493,9 +493,8 @@ const toolInfos = <ToolInfo>[
     icon: Icons.access_time,
     englishTitle: 'Clock',
     chineseTitle: '时钟',
-    englishSubtitle:
-        'Analog, flip, binary and big-digit clocks with a wake lock.',
-    chineseSubtitle: '模拟、翻页、二进制与超大数字时钟，可保持屏幕常亮。',
+    englishSubtitle: 'Analog, flip, binary, big-digit and 8-segment clocks with a wake lock.',
+    chineseSubtitle: '模拟、翻页、二进制、超大数字与 8 段码时钟，可保持屏幕常亮。',
   ),
 ];
 
@@ -8902,7 +8901,7 @@ class _SpeakerCleanerScreenState extends State<SpeakerCleanerScreen> {
   );
 }
 
-enum ClockFace { analog, flip, binary, big }
+enum ClockFace { analog, flip, binary, big, segment }
 
 extension ClockFaceDetails on ClockFace {
   String get englishName => switch (this) {
@@ -8910,6 +8909,7 @@ extension ClockFaceDetails on ClockFace {
     ClockFace.flip => 'Flip',
     ClockFace.binary => 'Binary',
     ClockFace.big => 'Big digits',
+    ClockFace.segment => '8-segment',
   };
 
   String get chineseName => switch (this) {
@@ -8917,6 +8917,7 @@ extension ClockFaceDetails on ClockFace {
     ClockFace.flip => '翻页',
     ClockFace.binary => '二进制',
     ClockFace.big => '超大数字',
+    ClockFace.segment => '8 段码',
   };
 }
 
@@ -8951,6 +8952,8 @@ List<int> clockBinaryDigits(DateTime now, {required bool use24Hour}) {
 
 bool clockBinaryBit(int digit, int weight) => (digit & weight) != 0;
 
+const int defaultSegmentColor = 0xff74f0df;
+
 class ClockSettings {
   ClockSettings();
 
@@ -8971,6 +8974,14 @@ class ClockSettings {
   bool binaryShowDate = true;
   bool bigShowDate = true;
   bool bigShowSeconds = true;
+  double segmentScale = 1;
+  bool segmentShowSeconds = true;
+  bool segmentShowDate = true;
+  int segmentColor = defaultSegmentColor;
+  bool segmentShowBorder = true;
+  double segmentBorderWidth = 1;
+  double segmentPadding = 20;
+  double segmentMargin = 0;
 
   void resetGeneral() {
     loop = false;
@@ -9004,12 +9015,24 @@ class ClockSettings {
     bigShowSeconds = true;
   }
 
+  void resetSegment() {
+    segmentScale = 1;
+    segmentShowSeconds = true;
+    segmentShowDate = true;
+    segmentColor = defaultSegmentColor;
+    segmentShowBorder = true;
+    segmentBorderWidth = 1;
+    segmentPadding = 20;
+    segmentMargin = 0;
+  }
+
   void resetAll() {
     resetGeneral();
     resetAnalog();
     resetFlip();
     resetBinary();
     resetBig();
+    resetSegment();
   }
 
   Map<String, dynamic> toJson() => {
@@ -9030,6 +9053,14 @@ class ClockSettings {
     'binaryDate': binaryShowDate,
     'bigDate': bigShowDate,
     'bigSeconds': bigShowSeconds,
+    'segmentScale': segmentScale,
+    'segmentSeconds': segmentShowSeconds,
+    'segmentDate': segmentShowDate,
+    'segmentColor': segmentColor,
+    'segmentBorder': segmentShowBorder,
+    'segmentBorderWidth': segmentBorderWidth,
+    'segmentPadding': segmentPadding,
+    'segmentMargin': segmentMargin,
   };
 
   factory ClockSettings.fromJson(Map<String, dynamic> json) {
@@ -9052,6 +9083,20 @@ class ClockSettings {
     settings.binaryShowDate = _readBool(json['binaryDate'], true);
     settings.bigShowDate = _readBool(json['bigDate'], true);
     settings.bigShowSeconds = _readBool(json['bigSeconds'], true);
+    settings.segmentScale = _readScale(json['segmentScale']);
+    settings.segmentShowSeconds = _readBool(json['segmentSeconds'], true);
+    settings.segmentShowDate = _readBool(json['segmentDate'], true);
+    final segmentColor = json['segmentColor'];
+    if (segmentColor is num) {
+      final value = segmentColor.toInt();
+      if (value >= 0 && value <= 0xffffffff) {
+        settings.segmentColor = value;
+      }
+    }
+    settings.segmentShowBorder = _readBool(json['segmentBorder'], true);
+    settings.segmentBorderWidth = _readBorderWidth(json['segmentBorderWidth']);
+    settings.segmentPadding = _readSegmentPadding(json['segmentPadding']);
+    settings.segmentMargin = _readSegmentMargin(json['segmentMargin']);
     return settings;
   }
 
@@ -9060,6 +9105,27 @@ class ClockSettings {
       return value.toDouble().clamp(0.7, 1.2).toDouble();
     }
     return 1;
+  }
+
+  static double _readBorderWidth(dynamic value) {
+    if (value is num && value.isFinite) {
+      return value.toDouble().clamp(0.5, 3.0).toDouble();
+    }
+    return 1;
+  }
+
+  static double _readSegmentPadding(dynamic value) {
+    if (value is num && value.isFinite) {
+      return value.toDouble().clamp(8.0, 48.0).toDouble();
+    }
+    return 20;
+  }
+
+  static double _readSegmentMargin(dynamic value) {
+    if (value is num && value.isFinite) {
+      return value.toDouble().clamp(0.0, 48.0).toDouble();
+    }
+    return 0;
   }
 
   static bool _readBool(dynamic value, bool fallback) =>
@@ -9715,6 +9781,105 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
           resetKey: const ValueKey('clock-reset-big'),
           onReset: () => resetSection(_settings.resetBig),
         ),
+        const Divider(height: 32),
+        section(
+          Icons.dialpad,
+          '8-segment',
+          '8 段码',
+          [
+            _sizeSlider(
+              context,
+              key: const ValueKey('clock-segment-scale'),
+              value: _settings.segmentScale,
+              onChanged: (value) => apply(() => _settings.segmentScale = value),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                tr(context, 'Color', '颜色'),
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (var index = 0; index < segmentColorOptions.length; index++)
+                  _SegmentColorSwatch(
+                    key: ValueKey('clock-segment-color-$index'),
+                    color: segmentColorOptions[index],
+                    selected:
+                        _settings.segmentColor ==
+                        segmentColorOptions[index].toARGB32(),
+                    onTap: () => apply(
+                      () => _settings.segmentColor = segmentColorOptions[index]
+                          .toARGB32(),
+                    ),
+                  ),
+              ],
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-segment-border'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Border', '边框')),
+              value: _settings.segmentShowBorder,
+              onChanged: (value) =>
+                  apply(() => _settings.segmentShowBorder = value),
+            ),
+            if (_settings.segmentShowBorder)
+              _borderWidthSlider(
+                context,
+                key: const ValueKey('clock-segment-border-width'),
+                value: _settings.segmentBorderWidth,
+                onChanged: (value) =>
+                    apply(() => _settings.segmentBorderWidth = value),
+              ),
+            _spacingSlider(
+              context,
+              key: const ValueKey('clock-segment-padding'),
+              english: 'Padding',
+              chinese: '内边距',
+              value: _settings.segmentPadding,
+              min: 8,
+              max: 48,
+              divisions: 20,
+              onChanged: (value) =>
+                  apply(() => _settings.segmentPadding = value),
+            ),
+            _spacingSlider(
+              context,
+              key: const ValueKey('clock-segment-margin'),
+              english: 'Margin',
+              chinese: '外边距',
+              value: _settings.segmentMargin,
+              min: 0,
+              max: 48,
+              divisions: 12,
+              onChanged: (value) =>
+                  apply(() => _settings.segmentMargin = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-segment-seconds'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Seconds', '秒数')),
+              value: _settings.segmentShowSeconds,
+              onChanged: (value) =>
+                  apply(() => _settings.segmentShowSeconds = value),
+            ),
+            SwitchListTile(
+              key: const ValueKey('clock-segment-date'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(tr(context, 'Date', '日期')),
+              value: _settings.segmentShowDate,
+              onChanged: (value) =>
+                  apply(() => _settings.segmentShowDate = value),
+            ),
+          ],
+          resetKey: const ValueKey('clock-reset-segment'),
+          onReset: () => resetSection(_settings.resetSegment),
+        ),
       ],
     );
   }
@@ -9789,6 +9954,95 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
             width: 48,
             child: Text(
               '${(value * 100).round()}%',
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _spacingSlider(
+    BuildContext context, {
+    required Key key,
+    required String english,
+    required String chinese,
+    required double value,
+    required double min,
+    required double max,
+    required int divisions,
+    required ValueChanged<double> onChanged,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 96,
+            child: Text(
+              tr(context, english, chinese),
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+          Expanded(
+            child: Slider(
+              key: key,
+              value: value,
+              min: min,
+              max: max,
+              divisions: divisions,
+              label: '${value.round()} px',
+              onChanged: onChanged,
+            ),
+          ),
+          SizedBox(
+            width: 56,
+            child: Text(
+              '${value.round()} px',
+              textAlign: TextAlign.end,
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _borderWidthSlider(
+    BuildContext context, {
+    required Key key,
+    required double value,
+    required ValueChanged<double> onChanged,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 96,
+            child: Text(
+              tr(context, 'Border width', '边框宽度'),
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+          Expanded(
+            child: Slider(
+              key: key,
+              value: value,
+              min: 0.5,
+              max: 3,
+              divisions: 5,
+              label: '${value.toStringAsFixed(1)} px',
+              onChanged: onChanged,
+            ),
+          ),
+          SizedBox(
+            width: 56,
+            child: Text(
+              '${value.toStringAsFixed(1)} px',
               textAlign: TextAlign.end,
               style: theme.textTheme.bodySmall,
             ),
@@ -10001,6 +10255,18 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
           use24Hour: use24Hour,
           showDate: _settings.bigShowDate,
           showSeconds: _settings.bigShowSeconds,
+        ),
+        ClockFace.segment => _SegmentClockPage(
+          now: _now,
+          use24Hour: use24Hour,
+          scale: _settings.segmentScale,
+          showSeconds: _settings.segmentShowSeconds,
+          showDate: _settings.segmentShowDate,
+          color: Color(_settings.segmentColor),
+          showBorder: _settings.segmentShowBorder,
+          borderWidth: _settings.segmentBorderWidth,
+          padding: _settings.segmentPadding,
+          margin: _settings.segmentMargin,
         ),
       },
     );
@@ -10933,6 +11199,425 @@ class _BigDigitsClockPage extends StatelessWidget {
       ),
     );
   }
+}
+
+const List<int> segmentDigitMasks = [63, 6, 91, 79, 102, 109, 125, 7, 127, 111];
+
+const Color _segmentPanelColor = Color(0xff06100e);
+const Color _segmentTextColor = Color(0xff9dc4bc);
+
+const List<Color> segmentColorOptions = [
+  Color(0xff74f0df),
+  Color(0xff86efac),
+  Color(0xffffd166),
+  Color(0xffff8a80),
+  Color(0xff8ab4ff),
+  Color(0xffc4a7ff),
+  Color(0xffff9ad5),
+  Color(0xfff1f5f4),
+];
+
+class _SegmentClockPage extends StatelessWidget {
+  const _SegmentClockPage({
+    required this.now,
+    required this.use24Hour,
+    required this.scale,
+    required this.showSeconds,
+    required this.showDate,
+    required this.color,
+    required this.showBorder,
+    required this.borderWidth,
+    required this.padding,
+    required this.margin,
+  });
+
+  final DateTime now;
+  final bool use24Hour;
+  final double scale;
+  final bool showSeconds;
+  final bool showDate;
+  final Color color;
+  final bool showBorder;
+  final double borderWidth;
+  final double padding;
+  final double margin;
+
+  @override
+  Widget build(BuildContext context) {
+    final digits = clockDigitsFor(now, use24Hour: use24Hour);
+    final date = MaterialLocalizations.of(context).formatMediumDate(now);
+    final period = digits.period;
+    final onColor = color;
+    final offColor = Color.lerp(_segmentPanelColor, onColor, 0.18)!;
+    final textColor = Color.lerp(_segmentTextColor, onColor, 0.3)!;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final digitCount = showSeconds ? 6 : 4;
+        final colonCount = showSeconds ? 2 : 1;
+        final factor =
+            digitCount * 0.68 + (colonCount * 2 + 2) * 0.08 + colonCount * 0.26;
+        final widthRoom = max(
+          40.0,
+          (constraints.maxWidth - padding * 2 - margin * 2 - 24) / factor,
+        );
+        final heightRoom = max(
+          40.0,
+          constraints.maxHeight -
+              padding * 2 -
+              margin * 2 -
+              24 -
+              (period.isNotEmpty ? 24.0 : 0.0) -
+              (showDate ? 24.0 : 0.0),
+        );
+        final fit = min(widthRoom, heightRoom);
+        final digitHeight = (fit * 0.85 * scale).clamp(24.0, fit);
+        final digitWidth = digitHeight * 0.68;
+        final colonWidth = digitHeight * 0.26;
+        final gap = digitHeight * 0.06;
+
+        Widget digit(String value, {bool dotOn = false}) => _SegmentDigit(
+          digit: value,
+          width: digitWidth,
+          height: digitHeight,
+          onColor: onColor,
+          offColor: offColor,
+          dotOn: dotOn,
+        );
+
+        Widget colon() => _SegmentColon(
+          width: colonWidth,
+          height: digitHeight,
+          on: now.second.isEven,
+          onColor: onColor,
+          offColor: offColor,
+        );
+
+        return Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Container(
+              key: const ValueKey('segment-panel'),
+              margin: EdgeInsets.all(margin),
+              padding: EdgeInsets.all(padding),
+              decoration: BoxDecoration(
+                color: _segmentPanelColor,
+                borderRadius: BorderRadius.circular(20),
+                border: showBorder
+                    ? Border.all(
+                        color: onColor.withValues(alpha: 0.28),
+                        width: borderWidth,
+                      )
+                    : null,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 24,
+                    offset: const Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (period.isNotEmpty) ...[
+                    Text(
+                      period,
+                      style: TextStyle(
+                        color: onColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 4,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  Row(
+                    key: const ValueKey('segment-digits'),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      digit(digits.hour[0]),
+                      SizedBox(width: gap),
+                      digit(digits.hour[1]),
+                      SizedBox(width: gap * 1.5),
+                      colon(),
+                      SizedBox(width: gap * 1.5),
+                      digit(digits.minute[0]),
+                      SizedBox(width: gap),
+                      digit(
+                        digits.minute[1],
+                        dotOn: !showSeconds && now.second.isEven,
+                      ),
+                      if (showSeconds)
+                        Row(
+                          key: const ValueKey('segment-seconds'),
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(width: gap * 1.5),
+                            colon(),
+                            SizedBox(width: gap * 1.5),
+                            digit(digits.second[0]),
+                            SizedBox(width: gap),
+                            digit(digits.second[1], dotOn: now.second.isEven),
+                          ],
+                        ),
+                    ],
+                  ),
+                  if (showDate) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      date,
+                      key: const ValueKey('segment-date'),
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 13,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SegmentColorSwatch extends StatelessWidget {
+  const _SegmentColorSwatch({
+    super.key,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final checkColor =
+        ThemeData.estimateBrightnessForColor(color) == Brightness.dark
+        ? Colors.white
+        : Colors.black87;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: selected ? scheme.onSurface : Colors.transparent,
+              width: 2.5,
+            ),
+            boxShadow: [
+              BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 8),
+            ],
+          ),
+          child: selected
+              ? Icon(Icons.check, size: 18, color: checkColor)
+              : null,
+        ),
+      ),
+    );
+  }
+}
+
+class _SegmentDigit extends StatelessWidget {
+  const _SegmentDigit({
+    required this.digit,
+    required this.width,
+    required this.height,
+    required this.onColor,
+    required this.offColor,
+    required this.dotOn,
+  });
+
+  final String digit;
+  final double width;
+  final double height;
+  final Color onColor;
+  final Color offColor;
+  final bool dotOn;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: width,
+    height: height,
+    child: CustomPaint(
+      painter: _SegmentDigitPainter(
+        digit: digit,
+        onColor: onColor,
+        offColor: offColor,
+        dotOn: dotOn,
+      ),
+    ),
+  );
+}
+
+class _SegmentDigitPainter extends CustomPainter {
+  _SegmentDigitPainter({
+    required this.digit,
+    required this.onColor,
+    required this.offColor,
+    required this.dotOn,
+  });
+
+  final String digit;
+  final Color onColor;
+  final Color offColor;
+  final bool dotOn;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final value = int.tryParse(digit) ?? 8;
+    final mask = value >= 0 && value < segmentDigitMasks.length
+        ? segmentDigitMasks[value]
+        : 0;
+    final t = size.height * 0.11;
+    final left = t * 0.55;
+    final right = size.width - t * 1.45;
+    final top = t * 0.6;
+    final bottom = size.height - t * 0.6;
+    final middle = size.height / 2;
+    final inset = t * 0.75;
+
+    final segments = <(int, Offset, Offset)>[
+      (1, Offset(left + inset, top), Offset(right - inset, top)),
+      (2, Offset(right, top + inset), Offset(right, middle - inset)),
+      (4, Offset(right, middle + inset), Offset(right, bottom - inset)),
+      (8, Offset(left + inset, bottom), Offset(right - inset, bottom)),
+      (16, Offset(left, middle + inset), Offset(left, bottom - inset)),
+      (32, Offset(left, top + inset), Offset(left, middle - inset)),
+      (64, Offset(left + inset, middle), Offset(right - inset, middle)),
+    ];
+
+    final offPaint = Paint()
+      ..color = offColor
+      ..strokeWidth = t
+      ..strokeCap = StrokeCap.round;
+    for (final segment in segments) {
+      canvas.drawLine(segment.$2, segment.$3, offPaint);
+    }
+
+    final glowPaint = Paint()
+      ..color = onColor.withValues(alpha: 0.35)
+      ..strokeWidth = t * 1.65
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, t * 0.9);
+    final onPaint = Paint()
+      ..color = onColor
+      ..strokeWidth = t
+      ..strokeCap = StrokeCap.round;
+    for (final segment in segments) {
+      if ((mask & segment.$1) == 0) continue;
+      canvas.drawLine(segment.$2, segment.$3, glowPaint);
+      canvas.drawLine(segment.$2, segment.$3, onPaint);
+    }
+
+    final dotCenter = Offset(size.width - t * 0.55, bottom);
+    final dotRadius = t * 0.5;
+    if (dotOn) {
+      canvas.drawCircle(
+        dotCenter,
+        dotRadius * 1.8,
+        Paint()
+          ..color = onColor.withValues(alpha: 0.35)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, t * 0.8),
+      );
+    }
+    canvas.drawCircle(
+      dotCenter,
+      dotRadius,
+      Paint()..color = dotOn ? onColor : offColor,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SegmentDigitPainter oldDelegate) =>
+      oldDelegate.digit != digit ||
+      oldDelegate.onColor != onColor ||
+      oldDelegate.offColor != offColor ||
+      oldDelegate.dotOn != dotOn;
+}
+
+class _SegmentColon extends StatelessWidget {
+  const _SegmentColon({
+    required this.width,
+    required this.height,
+    required this.on,
+    required this.onColor,
+    required this.offColor,
+  });
+
+  final double width;
+  final double height;
+  final bool on;
+  final Color onColor;
+  final Color offColor;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: width,
+    height: height,
+    child: CustomPaint(
+      painter: _SegmentColonPainter(
+        on: on,
+        onColor: onColor,
+        offColor: offColor,
+      ),
+    ),
+  );
+}
+
+class _SegmentColonPainter extends CustomPainter {
+  _SegmentColonPainter({
+    required this.on,
+    required this.onColor,
+    required this.offColor,
+  });
+
+  final bool on;
+  final Color onColor;
+  final Color offColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final radius = size.height * 0.055;
+    final x = size.width / 2;
+    for (final y in [size.height * 0.36, size.height * 0.64]) {
+      final center = Offset(x, y);
+      if (on) {
+        canvas.drawCircle(
+          center,
+          radius * 1.8,
+          Paint()
+            ..color = onColor.withValues(alpha: 0.3)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius),
+        );
+      }
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()..color = on ? onColor : offColor,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SegmentColonPainter oldDelegate) =>
+      oldDelegate.on != on ||
+      oldDelegate.onColor != onColor ||
+      oldDelegate.offColor != offColor;
 }
 
 class VaultNote {
