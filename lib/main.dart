@@ -14,9 +14,18 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pinyin/pinyin.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:window_manager/window_manager.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
+    try {
+      await windowManager.ensureInitialized();
+    } catch (_) {
+      // The clock still works inside the window if the plugin is unavailable.
+    }
+  }
   FlutterError.onError = (details) {
     final exception = details.exception;
     if (exception is AssertionError &&
@@ -154,7 +163,9 @@ class _SettingsScope extends InheritedNotifier<AppSettings> {
 }
 
 class VaultApp extends StatefulWidget {
-  const VaultApp({super.key});
+  const VaultApp({super.key, this.home = const HomeScreen()});
+
+  final Widget home;
 
   @override
   State<VaultApp> createState() => _VaultAppState();
@@ -206,7 +217,7 @@ class _VaultAppState extends State<VaultApp> {
           ),
           useMaterial3: true,
         ),
-        home: const HomeScreen(),
+        home: widget.home,
       ),
     ),
   );
@@ -473,6 +484,15 @@ const toolInfos = <ToolInfo>[
         'Pulse low tones and vibration to shake water out of the speaker.',
     chineseSubtitle: '用低频脉冲与震动把扬声器里的水震出来。',
   ),
+  ToolInfo(
+    id: 'clock',
+    icon: Icons.access_time,
+    englishTitle: 'Clock',
+    chineseTitle: '时钟',
+    englishSubtitle:
+        'Analog, flip, binary and big-digit clocks with a wake lock.',
+    chineseSubtitle: '模拟、翻页、二进制与超大数字时钟，可保持屏幕常亮。',
+  ),
 ];
 
 ToolInfo? toolInfoById(String id) {
@@ -662,6 +682,7 @@ class HomeScreen extends StatelessWidget {
     'vibrator' => const VibratorScreen(),
     'tone-generator' => const ToneGeneratorScreen(),
     'speaker-cleaner' => const SpeakerCleanerScreen(),
+    'clock' => const ClockScreen(),
     _ => null,
   };
 
@@ -8875,6 +8896,1213 @@ class _SpeakerCleanerScreenState extends State<SpeakerCleanerScreen> {
       ),
     ),
   );
+}
+
+enum ClockFace { analog, flip, binary, big }
+
+extension ClockFaceDetails on ClockFace {
+  String get englishName => switch (this) {
+    ClockFace.analog => 'Analog',
+    ClockFace.flip => 'Flip',
+    ClockFace.binary => 'Binary',
+    ClockFace.big => 'Big digits',
+  };
+
+  String get chineseName => switch (this) {
+    ClockFace.analog => '模拟',
+    ClockFace.flip => '翻页',
+    ClockFace.binary => '二进制',
+    ClockFace.big => '超大数字',
+  };
+}
+
+String clockFaceName(BuildContext context, ClockFace face) =>
+    tr(context, face.englishName, face.chineseName);
+
+({String hour, String minute, String second, String period}) clockDigitsFor(
+  DateTime now, {
+  required bool use24Hour,
+}) {
+  final hour24 = now.hour;
+  final hour = use24Hour ? hour24 : (hour24 % 12 == 0 ? 12 : hour24 % 12);
+  return (
+    hour: hour.toString().padLeft(2, '0'),
+    minute: now.minute.toString().padLeft(2, '0'),
+    second: now.second.toString().padLeft(2, '0'),
+    period: use24Hour ? '' : (hour24 < 12 ? 'AM' : 'PM'),
+  );
+}
+
+List<int> clockBinaryDigits(DateTime now, {required bool use24Hour}) {
+  final hour = use24Hour ? now.hour : (now.hour % 12 == 0 ? 12 : now.hour % 12);
+  return [
+    hour ~/ 10,
+    hour % 10,
+    now.minute ~/ 10,
+    now.minute % 10,
+    now.second ~/ 10,
+    now.second % 10,
+  ];
+}
+
+bool clockBinaryBit(int digit, int weight) => (digit & weight) != 0;
+
+class ClockScreen extends StatefulWidget {
+  const ClockScreen({super.key, this.initialFace = ClockFace.analog});
+
+  final ClockFace initialFace;
+
+  @override
+  State<ClockScreen> createState() => _ClockScreenState();
+}
+
+class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
+  static const _faces = ClockFace.values;
+  late final PageController _pageController;
+  late int _faceIndex;
+  DateTime _now = DateTime.now();
+  Timer? _tickTimer;
+  Timer? _controlsTimer;
+  bool _fullscreen = false;
+  bool _desktopFullscreen = false;
+  bool _controlsVisible = true;
+  bool _keepAwake = true;
+  bool _wakeLockUnavailable = false;
+  bool _backgrounded = false;
+
+  ClockFace get _face => _faces[_faceIndex];
+
+  bool get _desktop =>
+      Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+
+  @override
+  void initState() {
+    super.initState();
+    _faceIndex = widget.initialFace.index;
+    _pageController = PageController(initialPage: _faceIndex);
+    WidgetsBinding.instance.addObserver(this);
+    _scheduleTick();
+    unawaited(_syncWakelock());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _tickTimer?.cancel();
+    _controlsTimer?.cancel();
+    if (_fullscreen) unawaited(_showSystemUi());
+    if (_desktopFullscreen) {
+      unawaited(_setDesktopFullscreen(false));
+    }
+    unawaited(WakelockPlus.disable().catchError((_) {}));
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _backgrounded = false;
+      setState(() => _now = DateTime.now());
+      _scheduleTick();
+      if (_fullscreen) unawaited(_hideSystemUi());
+      unawaited(_syncWakelock());
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _backgrounded = true;
+      _tickTimer?.cancel();
+      unawaited(WakelockPlus.disable().catchError((_) {}));
+    }
+  }
+
+  void _scheduleTick() {
+    _tickTimer?.cancel();
+    final now = DateTime.now();
+    final delay = Duration(milliseconds: 1000 - now.millisecond);
+    _tickTimer = Timer(delay, () {
+      if (!mounted) return;
+      setState(() => _now = DateTime.now());
+      _scheduleTick();
+    });
+  }
+
+  Future<void> _syncWakelock() async {
+    if (_backgrounded) return;
+    try {
+      if (_keepAwake) {
+        await WakelockPlus.enable();
+      } else {
+        await WakelockPlus.disable();
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _wakeLockUnavailable = true;
+        _keepAwake = false;
+      });
+    }
+  }
+
+  Future<void> _setKeepAwake(bool value) async {
+    if (_wakeLockUnavailable) return;
+    setState(() => _keepAwake = value);
+    await _syncWakelock();
+  }
+
+  Future<void> _hideSystemUi() async {
+    try {
+      if (Platform.isIOS) {
+        await SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.manual,
+          overlays: const [],
+        );
+      } else {
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _showSystemUi() async {
+    try {
+      if (Platform.isIOS) {
+        await SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.manual,
+          overlays: SystemUiOverlay.values,
+        );
+      } else {
+        await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _setDesktopFullscreen(bool value) async {
+    if (!_desktop) return;
+    try {
+      await windowManager.ensureInitialized();
+      if (await windowManager.isFullScreen() != value) {
+        await windowManager.setFullScreen(value);
+      }
+      _desktopFullscreen = value;
+    } catch (_) {
+      // Keep the in-app fullscreen layout if the window cannot change.
+    }
+  }
+
+  Future<void> _setFullscreen(bool value) async {
+    if (_fullscreen == value) return;
+    _controlsTimer?.cancel();
+    _controlsTimer = null;
+    setState(() {
+      _fullscreen = value;
+      _controlsVisible = value;
+    });
+    if (value) {
+      _showControlsTemporarily();
+      await _hideSystemUi();
+    } else {
+      await _showSystemUi();
+    }
+    if (_desktop) {
+      if (_fullscreen == value) await _setDesktopFullscreen(value);
+    }
+  }
+
+  void _showControlsTemporarily() {
+    _controlsTimer?.cancel();
+    if (!_fullscreen) return;
+    if (mounted) setState(() => _controlsVisible = true);
+    _controlsTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() => _controlsVisible = false);
+    });
+  }
+
+  void _toggleControls() {
+    if (!_fullscreen) return;
+    if (_controlsVisible) {
+      _controlsTimer?.cancel();
+      setState(() => _controlsVisible = false);
+    } else {
+      _showControlsTemporarily();
+    }
+  }
+
+  void _goToFace(int index) {
+    final target = index < 0
+        ? 0
+        : (index >= _faces.length ? _faces.length - 1 : index);
+    if (target == _faceIndex) return;
+    setState(() => _faceIndex = target);
+    _pageController.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _previousFace() => _goToFace(_faceIndex - 1);
+
+  void _nextFace() => _goToFace(_faceIndex + 1);
+
+  Widget _wakelockButton(BuildContext context, {required Key buttonKey}) {
+    final scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      key: buttonKey,
+      tooltip: _wakeLockUnavailable
+          ? tr(context, 'Wake lock unavailable', '无法保持屏幕常亮')
+          : _keepAwake
+          ? tr(context, 'Screen stays on', '屏幕保持常亮')
+          : tr(context, 'Keep screen on', '保持屏幕常亮'),
+      onPressed: _wakeLockUnavailable ? null : () => _setKeepAwake(!_keepAwake),
+      icon: Icon(
+        _keepAwake ? Icons.wb_sunny : Icons.wb_sunny_outlined,
+        color: _keepAwake ? scheme.primary : null,
+      ),
+    );
+  }
+
+  Widget _faceSwitcher(BuildContext context, {required bool compact}) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final dots = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var index = 0; index < _faces.length; index++)
+          Semantics(
+            button: true,
+            selected: index == _faceIndex,
+            label: clockFaceName(context, _faces[index]),
+            child: GestureDetector(
+              key: ValueKey('clock-dot-$index'),
+              behavior: HitTestBehavior.opaque,
+              onTap: () => _goToFace(index),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  width: index == _faceIndex ? 18 : 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: index == _faceIndex
+                        ? scheme.primary
+                        : scheme.onSurfaceVariant.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+    final center = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(clockFaceName(context, _face), style: theme.textTheme.titleSmall),
+        const SizedBox(height: 2),
+        dots,
+      ],
+    );
+    final previous = IconButton(
+      tooltip: tr(context, 'Previous clock', '上一个时钟'),
+      onPressed: _faceIndex > 0 ? _previousFace : null,
+      icon: const Icon(Icons.chevron_left),
+    );
+    final next = IconButton(
+      tooltip: tr(context, 'Next clock', '下一个时钟'),
+      onPressed: _faceIndex < _faces.length - 1 ? _nextFace : null,
+      icon: const Icon(Icons.chevron_right),
+    );
+    if (compact) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [previous, center, next],
+      );
+    }
+    return Row(
+      children: [
+        previous,
+        Expanded(child: center),
+        next,
+      ],
+    );
+  }
+
+  Widget _bottomBar(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainer,
+        border: Border(top: BorderSide(color: scheme.outlineVariant)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+          child: _faceSwitcher(context, compact: false),
+        ),
+      ),
+    );
+  }
+
+  Widget _fullscreenOverlay(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return IgnorePointer(
+      ignoring: !_controlsVisible,
+      child: AnimatedOpacity(
+        opacity: _controlsVisible ? 1 : 0,
+        duration: const Duration(milliseconds: 220),
+        child: Stack(
+          children: [
+            Positioned(
+              top: 12,
+              right: 12,
+              child: SafeArea(
+                child: Material(
+                  color: scheme.surfaceContainer.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(28),
+                  elevation: 2,
+                  clipBehavior: Clip.antiAlias,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _wakelockButton(
+                        context,
+                        buttonKey: const ValueKey('clock-wakelock-overlay'),
+                      ),
+                      IconButton(
+                        key: const ValueKey('clock-exit-fullscreen'),
+                        tooltip: tr(context, 'Exit fullscreen', '退出全屏'),
+                        onPressed: () => _setFullscreen(false),
+                        icon: const Icon(Icons.fullscreen_exit),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
+              child: SafeArea(
+                top: false,
+                child: Center(
+                  child: Material(
+                    color: scheme.surfaceContainer.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(28),
+                    elevation: 2,
+                    clipBehavior: Clip.antiAlias,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: _faceSwitcher(context, compact: true),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFace(ClockFace face) {
+    final use24Hour =
+        MediaQuery.of(context).alwaysUse24HourFormat ||
+        Localizations.localeOf(context).languageCode == 'zh';
+    return _ClockPageBackground(
+      child: switch (face) {
+        ClockFace.analog => _AnalogClockPage(now: _now, use24Hour: use24Hour),
+        ClockFace.flip => _FlipClockPage(now: _now, use24Hour: use24Hour),
+        ClockFace.binary => _BinaryClockPage(now: _now, use24Hour: use24Hour),
+        ClockFace.big => _BigDigitsClockPage(now: _now, use24Hour: use24Hour),
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = PageView(
+      key: const ValueKey('clock-pages'),
+      controller: _pageController,
+      onPageChanged: (index) => setState(() => _faceIndex = index),
+      children: [for (final face in _faces) _buildFace(face)],
+    );
+    final body = _fullscreen
+        ? Stack(
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _toggleControls,
+                  child: pages,
+                ),
+              ),
+              _fullscreenOverlay(context),
+            ],
+          )
+        : Column(
+            children: [
+              Expanded(child: pages),
+              _bottomBar(context),
+            ],
+          );
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          if (_fullscreen) _setFullscreen(false);
+        },
+        const SingleActivator(LogicalKeyboardKey.keyF): () =>
+            _setFullscreen(!_fullscreen),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): _previousFace,
+        const SingleActivator(LogicalKeyboardKey.arrowRight): _nextFace,
+      },
+      child: Focus(
+        autofocus: true,
+        child: PopScope(
+          canPop: !_fullscreen,
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop && _fullscreen) _setFullscreen(false);
+          },
+          child: Scaffold(
+            appBar: _fullscreen
+                ? null
+                : AppBar(
+                    title: Text(tr(context, 'Clock', '时钟')),
+                    actions: [
+                      _wakelockButton(
+                        context,
+                        buttonKey: const ValueKey('clock-wakelock'),
+                      ),
+                      IconButton(
+                        key: const ValueKey('clock-fullscreen'),
+                        tooltip: tr(context, 'Fullscreen', '全屏'),
+                        onPressed: () => _setFullscreen(true),
+                        icon: const Icon(Icons.fullscreen),
+                      ),
+                    ],
+                  ),
+            body: body,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClockPageBackground extends StatelessWidget {
+  const _ClockPageBackground({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.surface, scheme.surfaceContainerLow],
+        ),
+      ),
+      child: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _AnalogClockPage extends StatelessWidget {
+  const _AnalogClockPage({required this.now, required this.use24Hour});
+
+  final DateTime now;
+  final bool use24Hour;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final digits = clockDigitsFor(now, use24Hour: use24Hour);
+    final date = MaterialLocalizations.of(context).formatMediumDate(now);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final faceSize = min(
+          constraints.maxWidth,
+          constraints.maxHeight * 0.64,
+        ).clamp(120.0, 620.0);
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: faceSize,
+                height: faceSize,
+                child: CustomPaint(
+                  painter: _AnalogClockPainter(
+                    now: now,
+                    faceColor: scheme.surfaceContainerHigh,
+                    rimColor: scheme.outlineVariant,
+                    tickColor: scheme.onSurfaceVariant,
+                    numberColor: scheme.onSurfaceVariant,
+                    hourColor: scheme.onSurface,
+                    minuteColor: scheme.onSurface,
+                    secondColor: scheme.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                '${digits.hour}:${digits.minute}:${digits.second}'
+                '${digits.period.isNotEmpty ? ' ${digits.period}' : ''}',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                date,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AnalogClockPainter extends CustomPainter {
+  _AnalogClockPainter({
+    required this.now,
+    required this.faceColor,
+    required this.rimColor,
+    required this.tickColor,
+    required this.numberColor,
+    required this.hourColor,
+    required this.minuteColor,
+    required this.secondColor,
+  });
+
+  final DateTime now;
+  final Color faceColor;
+  final Color rimColor;
+  final Color tickColor;
+  final Color numberColor;
+  final Color hourColor;
+  final Color minuteColor;
+  final Color secondColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = min(size.width, size.height) / 2 - 4;
+    if (radius <= 0) return;
+
+    canvas.drawCircle(
+      center,
+      radius + 4,
+      Paint()
+        ..color = const Color(0x22000000)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+    );
+    canvas.drawCircle(center, radius, Paint()..color = faceColor);
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(1, radius * 0.012)
+        ..color = rimColor,
+    );
+
+    for (var tick = 0; tick < 60; tick++) {
+      final angle = tick * pi / 30 - pi / 2;
+      final isHourTick = tick % 5 == 0;
+      final direction = Offset(cos(angle), sin(angle));
+      final outer = center + direction * (radius - radius * 0.03);
+      final inner =
+          center + direction * (radius - radius * (isHourTick ? 0.12 : 0.07));
+      canvas.drawLine(
+        inner,
+        outer,
+        Paint()
+          ..color = isHourTick ? tickColor : tickColor.withValues(alpha: 0.5)
+          ..strokeWidth = isHourTick
+              ? max(1.5, radius * 0.018)
+              : max(1, radius * 0.007)
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    for (final marker in const [
+      (label: '12', angle: -pi / 2),
+      (label: '3', angle: 0.0),
+      (label: '6', angle: pi / 2),
+      (label: '9', angle: pi),
+    ]) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: marker.label,
+          style: TextStyle(
+            color: numberColor,
+            fontSize: radius * 0.13,
+            fontWeight: FontWeight.w600,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final position =
+          center +
+          Offset(cos(marker.angle), sin(marker.angle)) * (radius * 0.77) -
+          Offset(painter.width / 2, painter.height / 2);
+      painter.paint(canvas, position);
+    }
+
+    final hourAngle =
+        ((now.hour % 12) + now.minute / 60 + now.second / 3600) * pi / 6 -
+        pi / 2;
+    final minuteAngle = (now.minute + now.second / 60) * pi / 30 - pi / 2;
+    final secondAngle = now.second * pi / 30 - pi / 2;
+
+    _drawHand(
+      canvas,
+      center,
+      hourAngle,
+      radius * 0.47,
+      max(3, radius * 0.035),
+      hourColor,
+    );
+    _drawHand(
+      canvas,
+      center,
+      minuteAngle,
+      radius * 0.68,
+      max(2, radius * 0.024),
+      minuteColor,
+    );
+    _drawHand(
+      canvas,
+      center,
+      secondAngle,
+      radius * 0.78,
+      max(1.4, radius * 0.012),
+      secondColor,
+      tail: radius * 0.12,
+    );
+    final tip =
+        center + Offset(cos(secondAngle), sin(secondAngle)) * (radius * 0.78);
+    canvas.drawCircle(
+      tip,
+      max(2, radius * 0.025),
+      Paint()..color = secondColor,
+    );
+    canvas.drawCircle(
+      center,
+      max(3, radius * 0.035),
+      Paint()..color = secondColor,
+    );
+    canvas.drawCircle(
+      center,
+      max(1.5, radius * 0.016),
+      Paint()..color = faceColor,
+    );
+  }
+
+  void _drawHand(
+    Canvas canvas,
+    Offset center,
+    double angle,
+    double length,
+    double width,
+    Color color, {
+    double tail = 0,
+  }) {
+    final direction = Offset(cos(angle), sin(angle));
+    final start = center - direction * tail;
+    final end = center + direction * length;
+    canvas.drawLine(
+      start,
+      end,
+      Paint()
+        ..color = color
+        ..strokeWidth = width
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_AnalogClockPainter oldDelegate) =>
+      oldDelegate.now != now ||
+      oldDelegate.faceColor != faceColor ||
+      oldDelegate.rimColor != rimColor ||
+      oldDelegate.tickColor != tickColor ||
+      oldDelegate.numberColor != numberColor ||
+      oldDelegate.hourColor != hourColor ||
+      oldDelegate.minuteColor != minuteColor ||
+      oldDelegate.secondColor != secondColor;
+}
+
+class _FlipClockPage extends StatelessWidget {
+  const _FlipClockPage({required this.now, required this.use24Hour});
+
+  final DateTime now;
+  final bool use24Hour;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final digits = clockDigitsFor(now, use24Hour: use24Hour);
+    final date = MaterialLocalizations.of(context).formatMediumDate(now);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardWidth = min(
+          (constraints.maxWidth - 32) / 4.8,
+          constraints.maxHeight * 0.28,
+        ).clamp(44.0, 170.0);
+        final cardHeight = cardWidth * 1.36;
+        final colonSize = cardHeight * 0.42;
+        final cardColor = scheme.surfaceContainerHighest;
+        final dividerColor = scheme.outlineVariant;
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _FlipCard(
+                    digit: digits.hour[0],
+                    width: cardWidth,
+                    height: cardHeight,
+                    background: cardColor,
+                    foreground: scheme.onSurface,
+                    divider: dividerColor,
+                  ),
+                  const SizedBox(width: 8),
+                  _FlipCard(
+                    digit: digits.hour[1],
+                    width: cardWidth,
+                    height: cardHeight,
+                    background: cardColor,
+                    foreground: scheme.onSurface,
+                    divider: dividerColor,
+                  ),
+                  SizedBox(
+                    width: cardWidth * 0.18,
+                    child: Center(
+                      child: Opacity(
+                        opacity: now.second.isEven ? 1 : 0.25,
+                        child: Text(
+                          ':',
+                          style: TextStyle(
+                            fontSize: colonSize,
+                            height: 1,
+                            color: scheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  _FlipCard(
+                    digit: digits.minute[0],
+                    width: cardWidth,
+                    height: cardHeight,
+                    background: cardColor,
+                    foreground: scheme.onSurface,
+                    divider: dividerColor,
+                  ),
+                  const SizedBox(width: 8),
+                  _FlipCard(
+                    digit: digits.minute[1],
+                    width: cardWidth,
+                    height: cardHeight,
+                    background: cardColor,
+                    foreground: scheme.onSurface,
+                    divider: dividerColor,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                '${digits.second} s',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: scheme.primary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                date,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              if (digits.period.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  digits.period,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: scheme.primary,
+                    letterSpacing: 2,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _FlipCard extends StatelessWidget {
+  const _FlipCard({
+    required this.digit,
+    required this.width,
+    required this.height,
+    required this.background,
+    required this.foreground,
+    required this.divider,
+  });
+
+  final String digit;
+  final double width;
+  final double height;
+  final Color background;
+  final Color foreground;
+  final Color divider;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(width * 0.16),
+        border: Border.all(color: divider.withValues(alpha: 0.7)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 420),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) {
+                final rotate = Tween<double>(
+                  begin: -pi / 2,
+                  end: 0,
+                ).animate(animation);
+                return AnimatedBuilder(
+                  animation: rotate,
+                  builder: (context, _) => Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.identity()
+                      ..setEntry(3, 2, 0.0015)
+                      ..rotateX(rotate.value),
+                    child: Opacity(opacity: animation.value, child: child),
+                  ),
+                );
+              },
+              child: Padding(
+                key: ValueKey(digit),
+                padding: EdgeInsets.only(bottom: height * 0.02),
+                child: Text(
+                  digit,
+                  style: TextStyle(
+                    fontSize: height * 0.66,
+                    height: 1,
+                    fontWeight: FontWeight.w600,
+                    color: foreground,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: width * 0.08,
+            right: width * 0.08,
+            top: height / 2 - 0.5,
+            child: Container(height: 1, color: divider.withValues(alpha: 0.7)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BinaryClockPage extends StatelessWidget {
+  const _BinaryClockPage({required this.now, required this.use24Hour});
+
+  final DateTime now;
+  final bool use24Hour;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final digits = clockBinaryDigits(now, use24Hour: use24Hour);
+    final clock = clockDigitsFor(now, use24Hour: use24Hour);
+    final date = MaterialLocalizations.of(context).formatMediumDate(now);
+    const weights = [8, 4, 2, 1];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final unit = min(
+          constraints.maxWidth / 12.5,
+          constraints.maxHeight / 13,
+        ).clamp(10.0, 48.0);
+        final gap = unit * 0.55;
+
+        Widget digitColumn(int index) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var row = 0; row < 4; row++) ...[
+              _BinaryDot(
+                on: clockBinaryBit(digits[index], weights[row]),
+                size: unit,
+                activeColor: scheme.primary,
+                inactiveColor: scheme.onSurface.withValues(alpha: 0.08),
+                borderColor: scheme.outlineVariant,
+              ),
+              if (row < 3) SizedBox(height: gap),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              '${digits[index]}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        );
+
+        Widget separator() => SizedBox(
+          width: gap * 1.4,
+          height: unit * 4 + gap * 3,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: unit * 0.22,
+                height: unit * 0.22,
+                decoration: BoxDecoration(
+                  color: scheme.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              SizedBox(height: unit * 0.4),
+              Container(
+                width: unit * 0.22,
+                height: unit * 0.22,
+                decoration: BoxDecoration(
+                  color: scheme.primary,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+          ),
+        );
+
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                tr(context, 'BINARY', '二进制'),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.primary,
+                  letterSpacing: 4,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var row = 0; row < 4; row++) ...[
+                        SizedBox(
+                          width: unit * 0.9,
+                          height: unit,
+                          child: Center(
+                            child: Text(
+                              '${weights[row]}',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (row < 3) SizedBox(height: gap),
+                      ],
+                    ],
+                  ),
+                  SizedBox(width: gap * 1.6),
+                  digitColumn(0),
+                  SizedBox(width: gap),
+                  digitColumn(1),
+                  separator(),
+                  digitColumn(2),
+                  SizedBox(width: gap),
+                  digitColumn(3),
+                  separator(),
+                  digitColumn(4),
+                  SizedBox(width: gap),
+                  digitColumn(5),
+                ],
+              ),
+              const SizedBox(height: 22),
+              Text(
+                '${clock.hour}:${clock.minute}:${clock.second}'
+                '${clock.period.isNotEmpty ? ' ${clock.period}' : ''}',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                date,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _BinaryDot extends StatelessWidget {
+  const _BinaryDot({
+    required this.on,
+    required this.size,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.borderColor,
+  });
+
+  final bool on;
+  final double size;
+  final Color activeColor;
+  final Color inactiveColor;
+  final Color borderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: on ? activeColor : inactiveColor,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: on ? activeColor : borderColor.withValues(alpha: 0.5),
+        ),
+        boxShadow: on
+            ? [
+                BoxShadow(
+                  color: activeColor.withValues(alpha: 0.45),
+                  blurRadius: size * 0.6,
+                  spreadRadius: size * 0.05,
+                ),
+              ]
+            : null,
+      ),
+    );
+  }
+}
+
+class _BigDigitsClockPage extends StatelessWidget {
+  const _BigDigitsClockPage({required this.now, required this.use24Hour});
+
+  final DateTime now;
+  final bool use24Hour;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final digits = clockDigitsFor(now, use24Hour: use24Hour);
+    final date = MaterialLocalizations.of(context).formatMediumDate(now);
+    final style = TextStyle(
+      fontSize: 400,
+      height: 0.9,
+      fontWeight: FontWeight.w700,
+      letterSpacing: -12,
+      color: scheme.onSurface,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Column(
+        children: [
+          Text(
+            date,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(digits.hour, style: style),
+                    Opacity(
+                      opacity: now.second.isEven ? 1 : 0.2,
+                      child: Text(
+                        ':',
+                        style: style.copyWith(
+                          color: scheme.primary,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ),
+                    Text(digits.minute, style: style),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Text(
+            '${digits.second} s'
+            '${digits.period.isNotEmpty ? ' · ${digits.period}' : ''}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class VaultNote {

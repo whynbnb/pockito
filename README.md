@@ -23,6 +23,7 @@
 - `井字棋` 小游戏：支持人机和双人两种模式；人机模式可选择简单 / 普通 / 困难三档难度（困难为 minimax 最优策略），可自定义双方符号并本地保存，记录胜 / 平 / 负；开启「快速判定胜负」后，当一方形成无法阻挡的必胜局面、或双方都无法再连成一线（必然平局）时提前结束。
 - `频率发生器` 工具：生成 20 Hz 到 20 kHz 的纯音，可选正弦波、方波、三角波和锯齿波。频率用对数滑块、精确数值输入、±1 Hz / ±10 Hz 微调、÷2 / ×2 和常用预设共同调节，播放中可实时改变频率、波形与音量；顶部显示十二平均律音名与音分偏差、周期和波长。支持最多 4 个音调层叠加，每层可分配到双声道、左声道或右声道，因此可以让左右耳听到不同频率；叠加时会按声道自动分配增益，避免削波。自动扫频可为当前音层设置起始 / 结束频率、1–3600 秒的持续时间、线性或对数曲线，以及往返循环。100 Hz 预设带有一个医学信息标记，点击可查看关于缓解晕车的 2025 年研究说明、论文链接与使用注意。可设置 1 / 5 / 10 / 30 分钟或不限时的播放时长，界面会显示倒计时和进度，到时自动停止；应用切到后台或锁屏后音频会继续播放（Android 通过前台服务与播放通知保活，iOS 启用音频后台模式）。请从低音量开始，避免长时间大音量聆听；Linux 需要系统中存在 ALSA、PulseAudio 或 PipeWire 等音频运行时。
 - `扬声器排水` 工具：用 60–1000 Hz 的低频脉冲（默认 165 Hz、正弦波）帮助把扬声器开孔附近的水珠震出。可选轻柔 / 标准 / 强劲 / 快速四种节奏，也可单独调节发声与静音时长；支持 10 / 20 / 30 / 45 秒的自动停止时长、实时频率与音量调节。手机上可开启与音频脉冲同步的震动；桌面平台没有震动马达，仅播放音频。建议取下保护壳、把扬声器朝下放在干布上，音量从 60–70% 开始；不要用物体插入扬声器开孔，设备不具备防水能力、扬声器已损坏或进水严重时请勿使用。
+- `时钟` 工具：提供模拟圆形、数字翻页、二进制点阵和超大数字四种表盘，左右滑动、底部圆点或箭头切换；支持 12 / 24 小时制（中文环境与系统 24 小时设置优先）、日期与秒数显示。默认保持屏幕常亮，可一键关闭；可切换全屏（移动端隐藏系统栏，桌面端切换窗口全屏），全屏时轻点屏幕显示浮动控制条，按 Esc 或系统返回键退出全屏。
 - 外层工具列表、解锁页和内层笔记共享主题与语言设置，支持浅色 / 深色、跟随系统主题、English / 中文和跟随系统语言，默认跟随系统，并会保存到应用支持目录下的 `tool_prefs.json`。
 - 隐藏入口：长按首页或密码生成器标题。
 
@@ -56,7 +57,7 @@ iOS / macOS 的原生插件通过 Swift Package Manager 集成。如果本机曾
 
 > 说明：本项目的代码由 LLM 辅助的 Vibe Coding 方式编写，以下开源项目**仅作为功能与交互上的参考，未参考其源代码**。相关许可证与出处列出以表达致意。
 
-应用内的致谢使用统一接口 `ToolInfo`（含 `ToolCredit` 列表与平台说明），每个小工具都在 `toolInfos` 注册表中实现该接口；没有相关信息的工具其 `hasAcknowledgements` 为 `false`（Basexx 与 2048），且不会显示信息图标。各工具页面的信息按钮由该接口统一驱动，致谢中的链接可点击（`url_launcher`），开源协议以徽章样式突出显示。
+应用内的致谢使用统一接口 `ToolInfo`（含 `ToolCredit` 列表与平台说明），每个小工具都在 `toolInfos` 注册表中实现该接口；没有相关信息的工具其 `hasAcknowledgements` 为 `false`（Basexx、2048、扬声器排水与时钟），且不会显示信息图标。各工具页面的信息按钮由该接口统一驱动，致谢中的链接可点击（`url_launcher`），开源协议以徽章样式突出显示。
 
 密码生成器的界面与功能灵感来自 Vectura Games 的开源项目 [Password Generator](https://gitlab.com/vecturagames/passwordgenerator)（Apache License 2.0）。应用内密码生成器页面的信息按钮可查看该致谢。
 
@@ -71,3 +72,5 @@ iOS / macOS 的原生插件通过 Swift Package Manager 集成。如果本机曾
 震动器工具的界面与思路灵感来自 xiaofeidev 的开源项目 [Vibrator](https://github.com/xiaofeidev/Vibrator)（Apache License 2.0）。应用内震动器页面的信息按钮可查看该致谢。
 
 频率发生器中的 100 Hz 缓解晕车说明灵感来自 BHznJNs 的开源项目 [MotionEaseTune](https://github.com/BHznJNs/MotionEaseTune)（GNU General Public License v3.0），应用内频率发生器页面的信息按钮可查看该致谢。其音频输出直接使用运行时依赖 [flutter_soloud](https://github.com/alnitak/flutter_soloud)（MIT License，内含 SoLoud 与 miniaudio 引擎），覆盖 Android、iOS、Windows、macOS 和 Linux；应用启用了 `no_xiph_libs`，因此不会打包 Ogg / Vorbis / Opus / FLAC 解码库。
+
+时钟工具的屏幕常亮使用运行时依赖 [wakelock_plus](https://pub.dev/packages/wakelock_plus)（BSD 3-Clause License），桌面窗口全屏使用 [window_manager](https://pub.dev/packages/window_manager)（MIT License）；两者的 macOS 插件均提供 Swift Package Manager 支持。

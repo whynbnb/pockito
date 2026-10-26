@@ -22,6 +22,7 @@ void main() {
     expect(toolInfoById('basexx')!.hasAcknowledgements, isFalse);
     expect(toolInfoById('2048')!.hasAcknowledgements, isFalse);
     expect(toolInfoById('speaker-cleaner')!.hasAcknowledgements, isFalse);
+    expect(toolInfoById('clock')!.hasAcknowledgements, isFalse);
     expect(toolInfoById('flashlight')!.hasAcknowledgements, isTrue);
     expect(toolInfoById('counter')!.hasAcknowledgements, isTrue);
     expect(toolInfoById('tone-generator')!.hasAcknowledgements, isTrue);
