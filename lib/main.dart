@@ -12908,17 +12908,19 @@ String worldClockOffsetLabel(Duration offset) {
 
 bool worldClockIsDay(DateTime now) => now.hour >= 6 && now.hour < 18;
 
-enum WorldSignMode { text, flip }
+enum WorldSignMode { text, flip, cards }
 
 extension WorldSignModeDetails on WorldSignMode {
   String get englishName => switch (this) {
     WorldSignMode.text => 'Text',
     WorldSignMode.flip => 'Flip',
+    WorldSignMode.cards => 'Cards',
   };
 
   String get chineseName => switch (this) {
     WorldSignMode.text => '文字',
     WorldSignMode.flip => '翻页',
+    WorldSignMode.cards => '纯卡片',
   };
 }
 
@@ -12970,6 +12972,7 @@ class WorldClockSettings {
     if (json['date'] case final bool value) settings.showDate = value;
     settings.signMode = switch (json['signMode']) {
       'flip' => WorldSignMode.flip,
+      'cards' => WorldSignMode.cards,
       _ => WorldSignMode.text,
     };
     return settings;
@@ -13205,21 +13208,27 @@ class _WorldClockScreenState extends State<WorldClockScreen>
             ),
             const SizedBox(height: 6),
             Text(
-              tr(context, 'City sign', '城市牌样式'),
+              tr(context, 'Display', '显示样式'),
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 8),
             SegmentedButton<WorldSignMode>(
               key: const ValueKey('world-clock-sign-mode'),
+              showSelectedIcon: false,
+              style: const ButtonStyle(
+                padding: WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 8),
+                ),
+              ),
               segments: [
                 for (final mode in WorldSignMode.values)
                   ButtonSegment(
                     value: mode,
-                    icon: Icon(
-                      mode == WorldSignMode.text
-                          ? Icons.title
-                          : Icons.flip_to_front_outlined,
-                    ),
+                    icon: Icon(switch (mode) {
+                      WorldSignMode.text => Icons.title,
+                      WorldSignMode.flip => Icons.flip_to_front_outlined,
+                      WorldSignMode.cards => Icons.style_outlined,
+                    }),
                     label: Text(
                       tr(context, mode.englishName, mode.chineseName),
                     ),
@@ -13235,8 +13244,11 @@ class _WorldClockScreenState extends State<WorldClockScreen>
             Text(
               tr(
                 context,
-                'Flip turns every letter of the city name into a split-flap card.',
-                '翻页牌会把城市名的每个字母做成机械翻页卡片。',
+                'Flip turns every letter of the city name into a split-flap card. '
+                    'Cards shows only the flip cards and hides the code, subtitle, '
+                    'date and small text.',
+                '翻页会把城市名的每个字母做成卡片；纯卡片只显示翻页卡片，'
+                    '隐藏代码、小字、日期和描述。',
               ),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
@@ -13287,6 +13299,7 @@ class _WorldClockScreenState extends State<WorldClockScreen>
         .formatMediumDate(_now)
         .toUpperCase();
     return Column(
+      key: const ValueKey('world-clock-header'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -13408,6 +13421,7 @@ class _WorldClockScreenState extends State<WorldClockScreen>
   @override
   Widget build(BuildContext context) {
     final cities = [for (final id in _settings.cityIds) ?worldCityById(id)];
+    final cardsOnly = _settings.signMode == WorldSignMode.cards;
     return Scaffold(
       backgroundColor: _worldBoardBackground,
       appBar: AppBar(
@@ -13451,8 +13465,10 @@ class _WorldClockScreenState extends State<WorldClockScreen>
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                 children: [
-                  _boardHeader(context, cities.length),
-                  const SizedBox(height: 18),
+                  if (!cardsOnly) ...[
+                    _boardHeader(context, cities.length),
+                    const SizedBox(height: 18),
+                  ],
                   if (cities.isEmpty)
                     _emptyBoard(context)
                   else
@@ -13510,6 +13526,7 @@ class _WorldClockRow extends StatelessWidget {
         .formatMediumDate(time)
         .toUpperCase();
     final chineseLocale = Localizations.localeOf(context).languageCode == 'zh';
+    final cardsOnly = signMode == WorldSignMode.cards;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -13545,8 +13562,8 @@ class _WorldClockRow extends StatelessWidget {
         );
 
         Widget flipSign({required bool wide}) {
-          final cardWidth = wide ? 20.0 : 16.0;
-          final cardHeight = wide ? 27.0 : 22.0;
+          final cardWidth = wide ? (cardsOnly ? 24.0 : 20.0) : 16.0;
+          final cardHeight = cardWidth * 1.35;
           final gap = wide ? 3.0 : 2.4;
           final space = wide ? 10.0 : 8.0;
           final letters = city.englishName.toUpperCase().split('');
@@ -13587,6 +13604,7 @@ class _WorldClockRow extends StatelessWidget {
               ],
             );
           }
+          if (cardsOnly) return flipSign(wide: wide);
           if (wide) {
             return Row(
               children: [
@@ -13609,6 +13627,7 @@ class _WorldClockRow extends StatelessWidget {
         Widget citySubtitle() {
           final region = tr(context, city.englishRegion, city.chineseRegion);
           return Padding(
+            key: ValueKey('world-clock-subtitle-${city.id}'),
             padding: const EdgeInsets.only(top: 2),
             child: Text(
               chineseLocale ? '${city.chineseName} · $region' : region,
@@ -13773,15 +13792,28 @@ class _WorldClockRow extends StatelessWidget {
                 ],
                 if (digits.period.isNotEmpty) ...[
                   SizedBox(width: compact ? 6 : 8),
-                  Text(
-                    digits.period,
-                    style: TextStyle(
-                      fontSize: compact ? 10 : 12,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1,
-                      color: _worldBoardAccent,
+                  if (cardsOnly)
+                    KeyedSubtree(
+                      key: ValueKey('world-clock-period-${city.id}'),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          flipCard(digits.period[0], secondWidth),
+                          SizedBox(width: secondWidth * 0.09),
+                          flipCard(digits.period[1], secondWidth),
+                        ],
+                      ),
+                    )
+                  else
+                    Text(
+                      digits.period,
+                      style: TextStyle(
+                        fontSize: compact ? 10 : 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1,
+                        color: _worldBoardAccent,
+                      ),
                     ),
-                  ),
                 ],
               ],
             ),
@@ -13789,7 +13821,30 @@ class _WorldClockRow extends StatelessWidget {
         }
 
         Widget content;
-        if (wide) {
+        if (cardsOnly) {
+          content = wide
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(child: cityHead(wide: true)),
+                    const SizedBox(width: 18),
+                    timeGroup(compact: false),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    cityHead(wide: false),
+                    const SizedBox(height: 12),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: timeGroup(compact: true),
+                    ),
+                  ],
+                );
+        } else if (wide) {
           content = Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
@@ -13845,10 +13900,11 @@ class _WorldClockRow extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 46, 14),
+                padding: EdgeInsets.fromLTRB(16, 14, cardsOnly ? 16 : 46, 14),
                 child: content,
               ),
-              Positioned(top: 4, right: 4, child: removeButton()),
+              if (!cardsOnly)
+                Positioned(top: 4, right: 4, child: removeButton()),
             ],
           ),
         );

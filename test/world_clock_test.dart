@@ -94,6 +94,9 @@ void main() {
     final empty = WorldClockSettings.fromJson({'cities': <String>[]});
     expect(empty.cityIds, isEmpty);
 
+    final cards = WorldClockSettings.fromJson({'signMode': 'cards'});
+    expect(cards.signMode, WorldSignMode.cards);
+
     final invalid = WorldClockSettings.fromJson({
       'cities': 'nope',
       'use24': 'yes',
@@ -264,7 +267,41 @@ void main() {
     );
   });
 
-  testWidgets('switches city signs to flip cards and persists the mode', (
+  testWidgets('fits a narrow cards-only board with period cards', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final settings = WorldClockSettings()
+      ..use24Hour = false
+      ..showSeconds = true
+      ..signMode = WorldSignMode.cards;
+    await tester.pumpWidget(
+      worldClockApp(
+        preferences: _MemoryPreferences({
+          'settings': jsonEncode(settings.toJson()),
+        }),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey('world-clock-sign-local')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('world-clock-period-local')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('world-clock-meta-local')), findsNothing);
+    expect(find.text('AM'), findsNothing);
+    expect(find.text('PM'), findsNothing);
+  });
+
+  testWidgets('switches display modes and persists the selected mode', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1100, 1800);
@@ -293,6 +330,36 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('NEW YORK'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('world-clock-subtitle-new-york')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Cards'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('world-clock-sign-new-york')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('world-clock-time-new-york')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('world-clock-subtitle-new-york')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('world-clock-meta-new-york')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('world-clock-remove-new-york')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('world-clock-header')), findsNothing);
+    expect(find.text('JFK'), findsNothing);
 
     Navigator.of(
       tester.element(find.byKey(const ValueKey('world-clock-settings'))),
@@ -301,7 +368,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 250));
 
     final saved = jsonDecode(store['settings']!) as Map<String, dynamic>;
-    expect(saved['signMode'], 'flip');
+    expect(saved['signMode'], 'cards');
 
     await tester.pumpWidget(
       worldClockApp(
@@ -314,6 +381,23 @@ void main() {
       find.byKey(const ValueKey('world-clock-sign-new-york')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('world-clock-header')), findsNothing);
+  });
+
+  testWidgets('fits the display mode control on a narrow phone', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(worldClockApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('world-clock-settings')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('world-clock-sign-mode')), findsOneWidget);
   });
 
   testWidgets('adds a city, persists it and removes it', (tester) async {
