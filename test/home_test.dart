@@ -318,6 +318,57 @@ void main() {
     expect(find.byType(SettingsView), findsOneWidget);
   });
 
+  testWidgets('changes the app accent from settings', (tester) async {
+    tester.view.physicalSize = const Size(900, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final store = <String, String>{};
+    await pumpHome(tester, _MemoryPreferences(store));
+    await tapNav(tester, HomeView.settings);
+
+    final blue = themeAccentPresets.firstWhere((preset) => preset.id == 'blue');
+    final swatch = find.byKey(const ValueKey('settings-accent-blue'));
+    await tester.ensureVisible(swatch);
+    await tester.pumpAndSettle();
+
+    final before = Theme.of(tester.element(find.byType(SettingsView)))
+        .colorScheme
+        .primary;
+    await tester.tap(swatch);
+    await tester.pumpAndSettle();
+    final after = Theme.of(tester.element(find.byType(SettingsView)))
+        .colorScheme
+        .primary;
+
+    expect(after, isNot(before));
+    expect(int.tryParse(store['ui_accent']!), blue.color);
+    expect(store['ui_dynamic'], '0');
+    expect(find.byKey(const ValueKey('settings-material-you')), findsNothing);
+  });
+
+  test('persists theme accent and dynamic color', () async {
+    final store = <String, String>{};
+    final settings = AppSettings(preferences: _MemoryPreferences(store));
+    await settings.load();
+    expect(settings.accentColor, defaultThemeAccent);
+    expect(settings.useDynamicColor, isFalse);
+
+    final blue = themeAccentPresets.firstWhere((preset) => preset.id == 'blue');
+    await settings.setAccentColor(blue.color);
+    expect(settings.accentColor, blue.color);
+    await settings.setUseDynamicColor(true);
+    expect(settings.useDynamicColor, isTrue);
+
+    final reloaded = AppSettings(preferences: _MemoryPreferences(store));
+    await reloaded.load();
+    expect(reloaded.accentColor, blue.color);
+    expect(reloaded.useDynamicColor, isTrue);
+
+    await reloaded.setAccentColor(themeAccentPresets.first.color);
+    expect(reloaded.useDynamicColor, isFalse);
+  });
+
   test('home state persists and keeps at least one tool view', () async {
     final store = <String, String>{};
     final settings = AppSettings(preferences: _MemoryPreferences(store));

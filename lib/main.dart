@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -49,6 +50,37 @@ String tr(BuildContext context, String english, String chinese) =>
     : english;
 
 enum LocaleMode { english, chinese, system }
+
+const int defaultThemeAccent = 0xff007c72;
+
+class ThemeAccentPreset {
+  const ThemeAccentPreset(
+    this.id,
+    this.englishName,
+    this.chineseName,
+    this.color,
+  );
+
+  final String id;
+  final String englishName;
+  final String chineseName;
+  final int color;
+}
+
+const themeAccentPresets = <ThemeAccentPreset>[
+  ThemeAccentPreset('teal', 'Teal', '青色', 0xff007c72),
+  ThemeAccentPreset('blue', 'Blue', '蓝色', 0xff1565c0),
+  ThemeAccentPreset('indigo', 'Indigo', '靛蓝', 0xff3949ab),
+  ThemeAccentPreset('purple', 'Purple', '紫色', 0xff7b1fa2),
+  ThemeAccentPreset('pink', 'Pink', '粉色', 0xffc2185b),
+  ThemeAccentPreset('red', 'Red', '红色', 0xffc62828),
+  ThemeAccentPreset('orange', 'Orange', '橙色', 0xffe65100),
+  ThemeAccentPreset('amber', 'Amber', '琥珀', 0xfff9a825),
+  ThemeAccentPreset('green', 'Green', '绿色', 0xff2e7d32),
+  ThemeAccentPreset('cyan', 'Cyan', '青蓝', 0xff00838f),
+  ThemeAccentPreset('brown', 'Brown', '棕色', 0xff5d4037),
+  ThemeAccentPreset('graphite', 'Graphite', '石墨', 0xff455a64),
+];
 
 class LocalPreferences {
   LocalPreferences([this._directory]) : _fileName = _defaultFileName;
@@ -166,6 +198,8 @@ class AppSettings extends ChangeNotifier {
   final LocalPreferences _preferences;
   ThemeMode themeMode = ThemeMode.system;
   LocaleMode localeMode = LocaleMode.system;
+  int accentColor = defaultThemeAccent;
+  bool useDynamicColor = false;
   List<String> recentToolIds = [];
   Set<String> favoriteToolIds = {};
   Set<HomeView> hiddenHomeViews = {};
@@ -201,6 +235,8 @@ class AppSettings extends ChangeNotifier {
     try {
       final theme = await _preferences.getString('ui_theme');
       final language = await _preferences.getString('ui_language');
+      final accent = await _preferences.getString('ui_accent');
+      final dynamicColor = await _preferences.getString('ui_dynamic');
       if (theme != null) {
         themeMode = switch (theme) {
           'dark' => ThemeMode.dark,
@@ -214,6 +250,15 @@ class AppSettings extends ChangeNotifier {
           'en' => LocaleMode.english,
           _ => LocaleMode.system,
         };
+      }
+      if (accent != null) {
+        final value = int.tryParse(accent);
+        if (value != null && value >= 0 && value <= 0xffffffff) {
+          accentColor = value;
+        }
+      }
+      if (dynamicColor != null) {
+        useDynamicColor = dynamicColor == '1';
       }
     } catch (_) {
       // Keep defaults when local storage is unavailable.
@@ -338,6 +383,26 @@ class AppSettings extends ChangeNotifier {
     await _saveHomeState();
   }
 
+  Future<void> setAccentColor(int color) async {
+    accentColor = color & 0xffffffff;
+    useDynamicColor = false;
+    notifyListeners();
+    await _saveThemeColor();
+  }
+
+  Future<void> setUseDynamicColor(bool value) async {
+    useDynamicColor = value;
+    notifyListeners();
+    await _saveThemeColor();
+  }
+
+  Future<void> _saveThemeColor() async {
+    try {
+      await _preferences.setString('ui_accent', accentColor.toString());
+      await _preferences.setString('ui_dynamic', useDynamicColor ? '1' : '0');
+    } catch (_) {}
+  }
+
   Future<void> setTheme(ThemeMode mode) async {
     themeMode = mode;
     notifyListeners();
@@ -402,33 +467,46 @@ class _VaultAppState extends State<VaultApp> {
     settings: _settings,
     child: AnimatedBuilder(
       animation: _settings,
-      builder: (context, _) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Pockito',
-        themeMode: _settings.themeMode,
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
-        supportedLocales: const [Locale('en'), Locale('zh')],
-        locale: switch (_settings.localeMode) {
-          LocaleMode.english => const Locale('en'),
-          LocaleMode.chinese => const Locale('zh'),
-          LocaleMode.system => null,
+      builder: (context, _) => DynamicColorBuilder(
+        builder: (lightDynamic, darkDynamic) {
+          final useDynamic =
+              _settings.useDynamicColor &&
+              Platform.isAndroid &&
+              lightDynamic != null &&
+              darkDynamic != null;
+          final accent = Color(_settings.accentColor);
+          final lightScheme = useDynamic
+              ? lightDynamic
+              : ColorScheme.fromSeed(seedColor: accent);
+          final darkSeed = _settings.accentColor == defaultThemeAccent
+              ? const Color(0xff54c7bb)
+              : accent;
+          final darkScheme = useDynamic
+              ? darkDynamic
+              : ColorScheme.fromSeed(
+                  seedColor: darkSeed,
+                  brightness: Brightness.dark,
+                );
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'Pockito',
+            themeMode: _settings.themeMode,
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+            ],
+            supportedLocales: const [Locale('en'), Locale('zh')],
+            locale: switch (_settings.localeMode) {
+              LocaleMode.english => const Locale('en'),
+              LocaleMode.chinese => const Locale('zh'),
+              LocaleMode.system => null,
+            },
+            theme: ThemeData(colorScheme: lightScheme, useMaterial3: true),
+            darkTheme: ThemeData(colorScheme: darkScheme, useMaterial3: true),
+            home: widget.home,
+          );
         },
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff007c72)),
-          useMaterial3: true,
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xff54c7bb),
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-        ),
-        home: widget.home,
       ),
     ),
   );
@@ -436,20 +514,26 @@ class _VaultAppState extends State<VaultApp> {
 
 Future<void> showSettings(BuildContext context) => showModalBottomSheet<void>(
   context: context,
+  isScrollControlled: true,
   builder: (context) => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            tr(context, 'Appearance', '外观设置'),
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 12),
-          const _AppearanceControls(),
-        ],
+    child: ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+      ),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              tr(context, 'Appearance', '外观设置'),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 12),
+            const _AppearanceControls(showLabels: true),
+          ],
+        ),
       ),
     ),
   ),
@@ -1605,7 +1689,125 @@ class _AppearanceControls extends StatelessWidget {
             unawaited(settings.setLocaleMode(selection.first));
           },
         ),
+        const SizedBox(height: 20),
+        const _ThemeColorControls(),
       ],
+    );
+  }
+}
+
+class _ThemeColorControls extends StatelessWidget {
+  const _ThemeColorControls();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettings.of(context);
+    final theme = Theme.of(context);
+    return DynamicColorBuilder(
+      builder: (lightDynamic, darkDynamic) {
+        final dynamicAvailable =
+            Platform.isAndroid && lightDynamic != null && darkDynamic != null;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              tr(context, 'Theme color', '主题色'),
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            if (dynamicAvailable)
+              SwitchListTile(
+                key: const ValueKey('settings-material-you'),
+                contentPadding: EdgeInsets.zero,
+                secondary: const Icon(Icons.auto_awesome_outlined),
+                title: Text(tr(context, 'Material You', 'Material You')),
+                subtitle: Text(
+                  tr(
+                    context,
+                    'Use colors sampled from the Android wallpaper.',
+                    '使用 Android 系统壁纸取色。',
+                  ),
+                ),
+                value: settings.useDynamicColor,
+                onChanged: (value) {
+                  unawaited(settings.setUseDynamicColor(value));
+                },
+              ),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final preset in themeAccentPresets)
+                  _ThemeColorSwatch(
+                    preset: preset,
+                    dynamicActive: dynamicAvailable && settings.useDynamicColor,
+                  ),
+              ],
+            ),
+            if (dynamicAvailable && settings.useDynamicColor) ...[
+              const SizedBox(height: 8),
+              Text(
+                tr(
+                  context,
+                  'Choosing a color below leaves Material You.',
+                  '选择下方颜色会退出 Material You。',
+                ),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ThemeColorSwatch extends StatelessWidget {
+  const _ThemeColorSwatch({required this.preset, required this.dynamicActive});
+
+  final ThemeAccentPreset preset;
+  final bool dynamicActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettings.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final color = Color(preset.color);
+    final selected = !dynamicActive && settings.accentColor == preset.color;
+    final foreground =
+        ThemeData.estimateBrightnessForColor(color) == Brightness.dark
+        ? Colors.white
+        : Colors.black87;
+    final label = tr(context, preset.englishName, preset.chineseName);
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: label,
+        child: InkWell(
+          key: ValueKey('settings-accent-${preset.id}'),
+          customBorder: const CircleBorder(),
+          onTap: () => unawaited(settings.setAccentColor(preset.color)),
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: selected ? scheme.onSurface : scheme.outlineVariant,
+                width: selected ? 3 : 1,
+              ),
+            ),
+            child: selected
+                ? Icon(Icons.check, size: 18, color: foreground)
+                : null,
+          ),
+        ),
+      ),
     );
   }
 }
