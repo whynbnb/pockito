@@ -1500,46 +1500,51 @@ class _ToolTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         child: Material(
           color: Colors.transparent,
-          child: Center(
-            child: SizedBox(
-              width: double.infinity,
-              child: ListTile(
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 10,
-                ),
-                leading: CircleAvatar(
-                  backgroundColor: scheme.primaryContainer,
-                  foregroundColor: scheme.onPrimaryContainer,
-                  child: Icon(icon),
-                ),
-                title: Text(
-                  title,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                subtitle: Text(
-                  subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      key: ValueKey('tool-favorite-$toolId'),
-                      tooltip: favorite
-                          ? tr(context, 'Remove from favorites', '取消收藏')
-                          : tr(context, 'Add to favorites', '收藏'),
-                      onPressed: onToggleFavorite,
-                      icon: Icon(
-                        favorite ? Icons.star : Icons.star_border,
-                        color: favorite ? Colors.amber : null,
-                      ),
+          child: InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 14, 10, 14),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: scheme.primaryContainer,
+                    foregroundColor: scheme.onPrimaryContainer,
+                    child: Icon(icon),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ],
                     ),
-                    const Icon(Icons.chevron_right),
-                  ],
-                ),
-                onTap: onTap,
+                  ),
+                  IconButton(
+                    key: ValueKey('tool-favorite-$toolId'),
+                    tooltip: favorite
+                        ? tr(context, 'Remove from favorites', '取消收藏')
+                        : tr(context, 'Add to favorites', '收藏'),
+                    onPressed: onToggleFavorite,
+                    icon: Icon(
+                      favorite ? Icons.star : Icons.star_border,
+                      color: favorite ? Colors.amber : null,
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+                ],
               ),
             ),
           ),

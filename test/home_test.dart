@@ -356,6 +356,27 @@ void main() {
     expect(text.overflow, TextOverflow.ellipsis);
   });
 
+  testWidgets('keeps breathing room under two-line descriptions', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await pumpHome(tester, _MemoryPreferences(<String, String>{}));
+    final subtitle = toolInfoById('basexx')!.englishSubtitle;
+    final text = find.text(subtitle);
+    final card = find.byKey(const ValueKey('tool-card-basexx'));
+    final padding = tester.widget<Padding>(
+      find.ancestor(of: text, matching: find.byType(Padding)).first,
+    );
+    expect(padding.padding, const EdgeInsets.fromLTRB(18, 14, 10, 14));
+
+    final textRect = tester.getRect(text);
+    final cardRect = tester.getRect(card);
+    expect(cardRect.bottom - textRect.bottom, greaterThanOrEqualTo(12));
+  });
+
   testWidgets('changes the app accent from settings', (tester) async {
     tester.view.physicalSize = const Size(900, 1600);
     tester.view.devicePixelRatio = 1;
