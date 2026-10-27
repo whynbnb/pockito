@@ -1743,6 +1743,17 @@ class _HomeScreenState extends State<HomeScreen> {
         .push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
   }
 
+  Widget? _settingsFallback(BuildContext context, AppSettings settings) {
+    if (settings.isHomeViewVisible(HomeView.settings)) return null;
+    return IconButton(
+      key: const ValueKey('home-settings-fallback'),
+      tooltip: tr(context, 'Settings', '设置'),
+      onPressed: () => _openSettings(context),
+      visualDensity: VisualDensity.compact,
+      icon: const Icon(Icons.tune),
+    );
+  }
+
   void _openTool(BuildContext context, AppSettings settings, ToolInfo tool) {
     final screen = _screenFor(tool.id);
     if (screen == null) return;
@@ -1988,6 +1999,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onTitleLongPress: () => openVault(context),
           subtitle: _toolCount(context, tools.length, searching: searching),
           action: _searchBar(context, HomeView.all),
+          trailing: _settingsFallback(context, settings),
           expanded: expanded,
           compactActionWidth: wide ? 320 : 172,
         ),
@@ -2025,6 +2037,7 @@ class _HomeScreenState extends State<HomeScreen> {
           action: baseTools.isEmpty
               ? null
               : _searchBar(context, HomeView.recent),
+          trailing: _settingsFallback(context, settings),
           expanded: expanded,
           compactActionWidth: wide ? 320 : 172,
         ),
@@ -2065,6 +2078,7 @@ class _HomeScreenState extends State<HomeScreen> {
           action: baseTools.isEmpty
               ? null
               : _searchBar(context, HomeView.favorites),
+          trailing: _settingsFallback(context, settings),
           expanded: expanded,
           compactActionWidth: wide ? 320 : 172,
         ),
@@ -2148,25 +2162,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ? settings.homeTab
         : visibleViews.first;
     final showNavigation = visibleViews.length > 1;
-    final settingsVisible = settings.isHomeViewVisible(HomeView.settings);
-    final settingsFallback = settingsVisible
-        ? null
-        : IconButton(
-            key: const ValueKey('home-settings-fallback'),
-            tooltip: tr(context, 'Settings', '设置'),
-            onPressed: () => _openSettings(context),
-            icon: const Icon(Icons.tune),
-          );
-    final appBar = settingsFallback == null
-        ? null
-        : AppBar(title: null, actions: [settingsFallback]);
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 900;
         return Scaffold(
-          appBar: appBar,
           body: SafeArea(
-            top: appBar == null,
+            top: true,
             bottom: false,
             child: wide
                 ? Row(
@@ -2314,6 +2315,7 @@ class _HomeSectionHeader extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.action,
+    this.trailing,
     this.expanded = false,
     this.compactActionWidth = 0,
     this.onTitleLongPress,
@@ -2322,6 +2324,7 @@ class _HomeSectionHeader extends StatelessWidget {
   final String title;
   final String subtitle;
   final Widget? action;
+  final Widget? trailing;
   final bool expanded;
   final double compactActionWidth;
   final VoidCallback? onTitleLongPress;
@@ -2355,16 +2358,26 @@ class _HomeSectionHeader extends StatelessWidget {
       ],
     );
     if (action == null) {
-      return titleColumn;
+      if (trailing == null) return titleColumn;
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(child: titleColumn),
+          const SizedBox(width: 8),
+          trailing!,
+        ],
+      );
     }
     return LayoutBuilder(
       builder: (context, constraints) {
+        final trailingSpace = trailing == null ? 0.0 : 56.0;
         final compactWidth = compactActionWidth
             .clamp(0.0, constraints.maxWidth)
             .toDouble();
-        final maxExpandedWidth = (constraints.maxWidth - 110 - 12)
-            .clamp(compactWidth, constraints.maxWidth)
-            .toDouble();
+        final maxExpandedWidth =
+            (constraints.maxWidth - 110 - 12 - trailingSpace)
+                .clamp(compactWidth, constraints.maxWidth)
+                .toDouble();
         final targetWidth = expanded
             ? min(compactWidth + 48, maxExpandedWidth)
             : compactWidth;
@@ -2379,6 +2392,7 @@ class _HomeSectionHeader extends StatelessWidget {
               width: targetWidth,
               child: action!,
             ),
+            if (trailing != null) ...[const SizedBox(width: 8), trailing!],
           ],
         );
       },

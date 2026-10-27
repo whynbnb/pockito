@@ -178,13 +178,17 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('home-show-settings')));
     await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(const ValueKey('home-settings-fallback')),
-      findsOneWidget,
-    );
-    expect(find.byType(AppBar), findsOneWidget);
+    final fallback = find.byKey(const ValueKey('home-settings-fallback'));
+    expect(fallback, findsOneWidget);
+    expect(find.byType(AppBar), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);
     expect(find.byKey(const PageStorageKey('home-all')), findsOneWidget);
+    final fallbackRect = tester.getRect(fallback);
+    final searchRect = tester.getRect(
+      find.byKey(const ValueKey('home-search-all')),
+    );
+    expect(fallbackRect.left, greaterThan(searchRect.right));
+    expect(fallbackRect.center.dy, closeTo(searchRect.center.dy, 4));
 
     await tester.tap(find.byKey(const ValueKey('home-settings-fallback')));
     await tester.pumpAndSettle();
