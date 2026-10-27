@@ -37,6 +37,7 @@ void main() {
 
     expect(find.byKey(const PageStorageKey('home-all')), findsOneWidget);
     expect(find.text('All tools'), findsOneWidget);
+    expect(find.byType(AppBar), findsNothing);
     expect(find.byKey(const ValueKey('home-nav-recent')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-nav-favorites')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-nav-all')), findsOneWidget);
@@ -89,6 +90,10 @@ void main() {
   });
 
   testWidgets('records recently opened tools and clears them', (tester) async {
+    tester.view.physicalSize = const Size(800, 1500);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
     final store = <String, String>{};
     await pumpHome(tester, _MemoryPreferences(store));
 
@@ -110,8 +115,14 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const ValueKey('home-clear-recent')));
+    await tapNav(tester, HomeView.settings);
+    final clearRecent = find.byKey(const ValueKey('settings-clear-recent'));
+    await tester.ensureVisible(clearRecent);
     await tester.pumpAndSettle();
+    await tester.tap(clearRecent);
+    await tester.pumpAndSettle();
+
+    await tapNav(tester, HomeView.recent);
     expect(find.byKey(const ValueKey('home-recent-empty')), findsOneWidget);
   });
 
@@ -155,6 +166,7 @@ void main() {
       find.byKey(const ValueKey('home-settings-fallback')),
       findsOneWidget,
     );
+    expect(find.byType(AppBar), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
     expect(find.byKey(const PageStorageKey('home-all')), findsOneWidget);
 
@@ -168,8 +180,142 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('home-settings-fallback')), findsNothing);
+    expect(find.byType(AppBar), findsNothing);
     expect(find.byKey(const ValueKey('home-nav-all')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-nav-settings')), findsOneWidget);
+  });
+
+  testWidgets('searches tools in the All view and clears the query', (
+    tester,
+  ) async {
+    await pumpHome(tester, _MemoryPreferences(<String, String>{}));
+
+    final search = find.byKey(const ValueKey('home-search-all'));
+    expect(search, findsOneWidget);
+
+    await tester.enterText(search, 'clock');
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('tool-tile-clock')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tool-tile-world-clock')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tool-tile-password-generator')),
+      findsNothing,
+    );
+    expect(find.text('2 results'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-search-clear-all')), findsOneWidget);
+
+    await tester.enterText(search, '时钟');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('tool-tile-clock')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tool-tile-world-clock')), findsOneWidget);
+    expect(find.text('2 results'), findsOneWidget);
+
+    await tester.enterText(search, 'matching nothing');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('home-search-empty-all')), findsOneWidget);
+    expect(find.text('0 results'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('home-search-clear-all')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('tool-tile-password-generator')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('home-search-empty-all')), findsNothing);
+  });
+
+  testWidgets('expands the mobile search field on focus', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await pumpHome(tester, _MemoryPreferences(<String, String>{}));
+
+    final search = find.byKey(const ValueKey('home-search-all'));
+    final before = tester.getSize(search).width;
+    expect(before, lessThan(220));
+
+    await tester.tap(search);
+    await tester.pumpAndSettle();
+
+    final after = tester.getSize(search).width;
+    expect(after, greaterThan(before));
+    expect(after, lessThan(260));
+    final titleRect = tester.getRect(find.text('All tools'));
+    final fieldRect = tester.getRect(search);
+    expect(titleRect.right, lessThanOrEqualTo(fieldRect.left));
+  });
+
+  testWidgets('searches recent and favorites independently', (tester) async {
+    final store = <String, String>{
+      'home_state': jsonEncode({
+        'recent': ['world-clock', 'password-generator'],
+        'favorites': ['clock', 'password-generator'],
+        'hidden': <String>[],
+        'tab': 'all',
+      }),
+    };
+    await pumpHome(tester, _MemoryPreferences(store));
+
+    await tapNav(tester, HomeView.favorites);
+    final favoriteSearch = find.byKey(const ValueKey('home-search-favorites'));
+    expect(favoriteSearch, findsOneWidget);
+    await tester.enterText(favoriteSearch, 'clock');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('tool-tile-clock')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tool-tile-password-generator')),
+      findsNothing,
+    );
+    expect(find.text('1 result'), findsOneWidget);
+
+    await tapNav(tester, HomeView.recent);
+    final recentSearch = find.byKey(const ValueKey('home-search-recent'));
+    expect(recentSearch, findsOneWidget);
+    await tester.enterText(recentSearch, 'world');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('tool-tile-world-clock')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tool-tile-password-generator')),
+      findsNothing,
+    );
+
+    await tapNav(tester, HomeView.settings);
+    expect(find.byType(SettingsView), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-search-settings')), findsNothing);
+  });
+
+  testWidgets('uses a navigation rail and a card grid on wide screens', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await pumpHome(tester, _MemoryPreferences(<String, String>{}));
+
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byKey(const ValueKey('home-search-all')), findsOneWidget);
+
+    final first = find.byKey(const ValueKey('tool-tile-password-generator'));
+    final second = find.byKey(const ValueKey('tool-tile-counter'));
+    final third = find.byKey(const ValueKey('tool-tile-game-counter'));
+    expect(first, findsOneWidget);
+    expect(second, findsOneWidget);
+    expect(third, findsOneWidget);
+
+    final firstTop = tester.getTopLeft(first);
+    final secondTop = tester.getTopLeft(second);
+    final thirdTop = tester.getTopLeft(third);
+    expect(firstTop.dy, secondTop.dy);
+    expect(firstTop.dx, lessThan(secondTop.dx));
+    expect(thirdTop.dy, greaterThan(firstTop.dy));
+    expect(tester.getSize(first).width, greaterThan(300));
+
+    await tapNav(tester, HomeView.settings);
+    expect(find.byType(SettingsView), findsOneWidget);
   });
 
   test('home state persists and keeps at least one tool view', () async {

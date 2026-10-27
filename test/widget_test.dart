@@ -3,6 +3,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pockito/main.dart';
 
+Finder homeScrollable() => find
+    .byWidgetPredicate(
+      (widget) =>
+          widget is Scrollable && widget.axisDirection == AxisDirection.down,
+    )
+    .first;
+
 class _MemoryPreferences extends LocalPreferences {
   _MemoryPreferences(this.values);
 
@@ -21,7 +28,7 @@ void main() {
   testWidgets('shows the tool list', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    expect(find.text('Pockito'), findsOneWidget);
+    expect(find.text('All tools'), findsOneWidget);
     expect(find.text('Password Generator'), findsOneWidget);
     expect(find.text('+1 Counter'), findsOneWidget);
   });
@@ -110,7 +117,11 @@ void main() {
   testWidgets('encodes text with the Basexx tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Basexx'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Basexx'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
     await tester.ensureVisible(find.text('Basexx'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Basexx'));
@@ -126,7 +137,13 @@ void main() {
   testWidgets('opens the 2048 tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('2048'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('2048'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('2048'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('2048'));
     await tester.pumpAndSettle();
 
@@ -138,7 +155,13 @@ void main() {
   testWidgets('renders a full 2048 grid', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('2048'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('2048'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('2048'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('2048'));
     await tester.pumpAndSettle();
 
@@ -154,7 +177,13 @@ void main() {
   testWidgets('switches the 2048 board size', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('2048'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('2048'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('2048'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('2048'));
     await tester.pumpAndSettle();
 
@@ -169,7 +198,13 @@ void main() {
   testWidgets('auto plays the 2048 tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('2048'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('2048'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('2048'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('2048'));
     await tester.pumpAndSettle();
 
@@ -234,7 +269,11 @@ void main() {
   testWidgets('opens the flashlight tool and converts morse', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Flashlight'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Flashlight'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
     await tester.ensureVisible(find.text('Flashlight'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Flashlight'));
@@ -252,7 +291,11 @@ void main() {
   testWidgets('shows flashlight acknowledgements', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Flashlight'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Flashlight'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
     await tester.ensureVisible(find.text('Flashlight'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Flashlight'));
@@ -268,7 +311,13 @@ void main() {
   testWidgets('opens the vibrator tool and previews patterns', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Vibrator'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Vibrator'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Vibrator'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Vibrator'));
     await tester.pumpAndSettle();
 
@@ -497,7 +546,13 @@ void main() {
   testWidgets('shows tic tac toe acknowledgements', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Tic-Tac-Toe'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -511,7 +566,13 @@ void main() {
   testWidgets('opens the tic tac toe tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Tic-Tac-Toe'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -522,7 +583,13 @@ void main() {
   testWidgets('lets the bot reply in tic tac toe', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Tic-Tac-Toe'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -538,7 +605,13 @@ void main() {
   testWidgets('customizes tic tac toe symbols', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Tic-Tac-Toe'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -559,7 +632,13 @@ void main() {
   testWidgets('plays tic tac toe with two players', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Tic-Tac-Toe'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -583,7 +662,13 @@ void main() {
   ) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Tic-Tac-Toe'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -609,7 +694,13 @@ void main() {
   ) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Tic-Tac-Toe'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 
@@ -643,7 +734,13 @@ void main() {
   ) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Tic-Tac-Toe'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Tic-Tac-Toe'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Tic-Tac-Toe'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Tic-Tac-Toe'));
     await tester.pumpAndSettle();
 

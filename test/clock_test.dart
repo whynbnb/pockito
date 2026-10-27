@@ -9,6 +9,13 @@ import 'package:wakelock_plus_platform_interface/wakelock_plus_platform_interfac
 
 import 'package:pockito/main.dart';
 
+Finder homeScrollable() => find
+    .byWidgetPredicate(
+      (widget) =>
+          widget is Scrollable && widget.axisDirection == AxisDirection.down,
+    )
+    .first;
+
 class _FakeWakelock extends WakelockPlusPlatformInterface {
   _FakeWakelock({this.unavailable = false});
 
@@ -309,7 +316,11 @@ void main() {
   testWidgets('opens the clock from the tool list', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Clock'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Clock'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
     await tester.ensureVisible(find.text('Clock'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Clock'));

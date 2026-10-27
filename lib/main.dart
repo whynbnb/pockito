@@ -836,8 +836,42 @@ Future<void> openVault(BuildContext context) async {
       .push(MaterialPageRoute(builder: (_) => UnlockScreen(store: store)));
 }
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late final Map<HomeView, TextEditingController> _searchControllers = {
+    for (final view in HomeView.core) view: TextEditingController(),
+  };
+  late final Map<HomeView, FocusNode> _searchFocusNodes;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchFocusNodes = {
+      for (final view in HomeView.core)
+        view: FocusNode()..addListener(_onSearchFocusChanged),
+    };
+  }
+
+  void _onSearchFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _searchControllers.values) {
+      controller.dispose();
+    }
+    for (final node in _searchFocusNodes.values) {
+      node.dispose();
+    }
+    super.dispose();
+  }
 
   void _open(BuildContext context, Widget screen) {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
@@ -871,6 +905,84 @@ class HomeScreen extends StatelessWidget {
     _open(context, screen);
   }
 
+  List<ToolInfo> _filterTools(String query, List<ToolInfo> tools) {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return tools;
+    return [
+      for (final tool in tools)
+        if (tool.englishTitle.toLowerCase().contains(needle) ||
+            tool.chineseTitle.contains(needle) ||
+            tool.englishSubtitle.toLowerCase().contains(needle) ||
+            tool.chineseSubtitle.contains(needle) ||
+            tool.id.toLowerCase().contains(needle))
+          tool,
+    ];
+  }
+
+  String _toolCount(
+    BuildContext context,
+    int count, {
+    required bool searching,
+  }) {
+    if (searching) {
+      return tr(
+        context,
+        count == 1 ? '1 result' : '$count results',
+        '$count 个结果',
+      );
+    }
+    return tr(context, count == 1 ? '1 tool' : '$count tools', '$count 个工具');
+  }
+
+  Widget _searchBar(BuildContext context, HomeView view) {
+    final controller = _searchControllers[view]!;
+    return TextField(
+      key: ValueKey('home-search-${view.name}'),
+      controller: controller,
+      focusNode: _searchFocusNodes[view],
+      textInputAction: TextInputAction.search,
+      onChanged: (_) => setState(() {}),
+      onSubmitted: (_) => _searchFocusNodes[view]?.unfocus(),
+      onTapOutside: (_) => _searchFocusNodes[view]?.unfocus(),
+      decoration: InputDecoration(
+        prefixIcon: const Icon(Icons.search, size: 20),
+        prefixIconConstraints: const BoxConstraints(
+          minWidth: 36,
+          minHeight: 36,
+        ),
+        hintText: tr(context, 'Search tools', '搜索工具'),
+        suffixIcon: controller.text.isEmpty
+            ? null
+            : IconButton(
+                key: ValueKey('home-search-clear-${view.name}'),
+                tooltip: tr(context, 'Clear search', '清除搜索'),
+                onPressed: () {
+                  controller.clear();
+                  setState(() {});
+                },
+                icon: const Icon(Icons.close, size: 18),
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                padding: EdgeInsets.zero,
+              ),
+        suffixIconConstraints: const BoxConstraints(
+          minWidth: 32,
+          minHeight: 32,
+        ),
+        filled: true,
+        fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 10,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
   Widget _toolTile(BuildContext context, AppSettings settings, ToolInfo tool) {
     final favorite = settings.favoriteToolIds.contains(tool.id);
     return _ToolTile(
@@ -885,116 +997,270 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _allView(BuildContext context, AppSettings settings) => ListView(
-    key: const PageStorageKey('home-all'),
-    padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
-    children: [
-      _HomeSectionHeader(
-        title: tr(context, 'All tools', '全部工具'),
+  Widget _toolGrid(
+    BuildContext context,
+    AppSettings settings,
+    List<ToolInfo> tools, {
+    required bool wide,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = wide ? (constraints.maxWidth >= 1040 ? 3 : 2) : 1;
+        const gap = 12.0;
+        final width = (constraints.maxWidth - (columns - 1) * gap) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final tool in tools)
+              SizedBox(width: width, child: _toolTile(context, settings, tool)),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _searchEmpty(
+    BuildContext context,
+    HomeView view,
+    TextEditingController controller,
+  ) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 620),
+      child: _HomeEmptyState(
+        key: ValueKey('home-search-empty-${view.name}'),
+        icon: Icons.search_off,
+        title: tr(context, 'No matching tools', '没有匹配的工具'),
         subtitle: tr(
           context,
-          toolInfos.length == 1 ? '1 tool' : '${toolInfos.length} tools',
-          '${toolInfos.length} 个工具',
+          'Try a different keyword or clear the search.',
+          '试试其他关键词或清除搜索。',
         ),
+        actionLabel: tr(context, 'Clear search', '清除搜索'),
+        actionIcon: Icons.close,
+        onAction: () {
+          controller.clear();
+          setState(() {});
+        },
       ),
-      const SizedBox(height: 16),
-      for (var index = 0; index < toolInfos.length; index++) ...[
-        _toolTile(context, settings, toolInfos[index]),
-        if (index < toolInfos.length - 1) const SizedBox(height: 12),
-      ],
-    ],
+    ),
   );
 
-  Widget _recentView(BuildContext context, AppSettings settings) {
-    final tools = [for (final id in settings.recentToolIds) ?toolInfoById(id)];
+  Widget _recentEmpty(BuildContext context, AppSettings settings) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 620),
+      child: _HomeEmptyState(
+        key: const ValueKey('home-recent-empty'),
+        icon: Icons.history,
+        title: tr(context, 'No recent tools', '还没有最近记录'),
+        subtitle: tr(
+          context,
+          'Open a tool and it will appear here.',
+          '打开一个工具后会显示在这里。',
+        ),
+        actionLabel: settings.isHomeViewVisible(HomeView.all)
+            ? tr(context, 'Browse all tools', '浏览全部工具')
+            : null,
+        actionIcon: Icons.grid_view_outlined,
+        onAction: settings.isHomeViewVisible(HomeView.all)
+            ? () => unawaited(settings.setHomeTab(HomeView.all))
+            : null,
+      ),
+    ),
+  );
+
+  Widget _favoritesEmpty(BuildContext context, AppSettings settings) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 620),
+      child: _HomeEmptyState(
+        key: const ValueKey('home-favorites-empty'),
+        icon: Icons.star_border,
+        title: tr(context, 'No favorites yet', '还没有收藏'),
+        subtitle: tr(
+          context,
+          'Tap the star on a tool in All to save it here.',
+          '在「全部」中点击工具旁的星标即可收藏。',
+        ),
+        actionLabel: settings.isHomeViewVisible(HomeView.all)
+            ? tr(context, 'Browse all tools', '浏览全部工具')
+            : null,
+        actionIcon: Icons.grid_view_outlined,
+        onAction: settings.isHomeViewVisible(HomeView.all)
+            ? () => unawaited(settings.setHomeTab(HomeView.all))
+            : null,
+      ),
+    ),
+  );
+
+  Widget _allView(
+    BuildContext context,
+    AppSettings settings, {
+    required bool wide,
+  }) {
+    final controller = _searchControllers[HomeView.all]!;
+    final searching = controller.text.trim().isNotEmpty;
+    final expanded = !wide && _searchFocusNodes[HomeView.all]!.hasFocus;
+    final tools = _filterTools(controller.text, toolInfos);
+    return ListView(
+      key: const PageStorageKey('home-all'),
+      padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 20, wide ? 32 : 20, 36),
+      children: [
+        _HomeSectionHeader(
+          title: tr(context, 'All tools', '全部工具'),
+          onTitleLongPress: () => openVault(context),
+          subtitle: _toolCount(context, tools.length, searching: searching),
+          action: _searchBar(context, HomeView.all),
+          expanded: expanded,
+          compactActionWidth: wide ? 320 : 172,
+        ),
+        const SizedBox(height: 16),
+        if (tools.isEmpty)
+          _searchEmpty(context, HomeView.all, controller)
+        else
+          _toolGrid(context, settings, tools, wide: wide),
+      ],
+    );
+  }
+
+  Widget _recentView(
+    BuildContext context,
+    AppSettings settings, {
+    required bool wide,
+  }) {
+    final controller = _searchControllers[HomeView.recent]!;
+    final baseTools = [
+      for (final id in settings.recentToolIds) ?toolInfoById(id),
+    ];
+    final searching = controller.text.trim().isNotEmpty;
+    final expanded = !wide && _searchFocusNodes[HomeView.recent]!.hasFocus;
+    final tools = _filterTools(controller.text, baseTools);
     return ListView(
       key: const PageStorageKey('home-recent'),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+      padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 20, wide ? 32 : 20, 36),
       children: [
         _HomeSectionHeader(
           title: tr(context, 'Recent', '最近'),
-          subtitle: tools.isEmpty
+          onTitleLongPress: () => openVault(context),
+          subtitle: baseTools.isEmpty
               ? tr(context, 'No recent tools yet', '还没有最近记录')
-              : tr(
-                  context,
-                  tools.length == 1 ? '1 tool' : '${tools.length} tools',
-                  '${tools.length} 个工具',
-                ),
-          action: tools.isEmpty
+              : _toolCount(context, tools.length, searching: searching),
+          action: baseTools.isEmpty
               ? null
-              : IconButton(
-                  key: const ValueKey('home-clear-recent'),
-                  tooltip: tr(context, 'Clear recent', '清空最近'),
-                  onPressed: () => unawaited(settings.clearRecent()),
-                  icon: const Icon(Icons.delete_sweep_outlined),
-                ),
+              : _searchBar(context, HomeView.recent),
+          expanded: expanded,
+          compactActionWidth: wide ? 320 : 172,
         ),
         const SizedBox(height: 16),
-        if (tools.isEmpty)
-          _HomeEmptyState(
-            key: const ValueKey('home-recent-empty'),
-            icon: Icons.history,
-            title: tr(context, 'No recent tools', '还没有最近记录'),
-            subtitle: tr(
-              context,
-              'Open a tool and it will appear here.',
-              '打开一个工具后会显示在这里。',
-            ),
-            onBrowse: settings.isHomeViewVisible(HomeView.all)
-                ? () => unawaited(settings.setHomeTab(HomeView.all))
-                : null,
-          )
+        if (baseTools.isEmpty)
+          _recentEmpty(context, settings)
+        else if (tools.isEmpty)
+          _searchEmpty(context, HomeView.recent, controller)
         else
-          for (var index = 0; index < tools.length; index++) ...[
-            _toolTile(context, settings, tools[index]),
-            if (index < tools.length - 1) const SizedBox(height: 12),
-          ],
+          _toolGrid(context, settings, tools, wide: wide),
       ],
     );
   }
 
-  Widget _favoritesView(BuildContext context, AppSettings settings) {
-    final tools = [
+  Widget _favoritesView(
+    BuildContext context,
+    AppSettings settings, {
+    required bool wide,
+  }) {
+    final controller = _searchControllers[HomeView.favorites]!;
+    final baseTools = [
       for (final tool in toolInfos)
         if (settings.favoriteToolIds.contains(tool.id)) tool,
     ];
+    final searching = controller.text.trim().isNotEmpty;
+    final expanded = !wide && _searchFocusNodes[HomeView.favorites]!.hasFocus;
+    final tools = _filterTools(controller.text, baseTools);
     return ListView(
       key: const PageStorageKey('home-favorites'),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+      padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 20, wide ? 32 : 20, 36),
       children: [
         _HomeSectionHeader(
           title: tr(context, 'Favorites', '收藏'),
-          subtitle: tools.isEmpty
+          onTitleLongPress: () => openVault(context),
+          subtitle: baseTools.isEmpty
               ? tr(context, 'No favorites yet', '还没有收藏')
-              : tr(
-                  context,
-                  tools.length == 1 ? '1 tool' : '${tools.length} tools',
-                  '${tools.length} 个工具',
-                ),
+              : _toolCount(context, tools.length, searching: searching),
+          action: baseTools.isEmpty
+              ? null
+              : _searchBar(context, HomeView.favorites),
+          expanded: expanded,
+          compactActionWidth: wide ? 320 : 172,
         ),
         const SizedBox(height: 16),
-        if (tools.isEmpty)
-          _HomeEmptyState(
-            key: const ValueKey('home-favorites-empty'),
-            icon: Icons.star_border,
-            title: tr(context, 'No favorites yet', '还没有收藏'),
-            subtitle: tr(
-              context,
-              'Tap the star on a tool in All to save it here.',
-              '在「全部」中点击工具旁的星标即可收藏。',
-            ),
-            onBrowse: settings.isHomeViewVisible(HomeView.all)
-                ? () => unawaited(settings.setHomeTab(HomeView.all))
-                : null,
-          )
+        if (baseTools.isEmpty)
+          _favoritesEmpty(context, settings)
+        else if (tools.isEmpty)
+          _searchEmpty(context, HomeView.favorites, controller)
         else
-          for (var index = 0; index < tools.length; index++) ...[
-            _toolTile(context, settings, tools[index]),
-            if (index < tools.length - 1) const SizedBox(height: 12),
-          ],
+          _toolGrid(context, settings, tools, wide: wide),
       ],
     );
   }
+
+  Widget _viewFor(
+    BuildContext context,
+    AppSettings settings,
+    HomeView view, {
+    required bool wide,
+  }) => switch (view) {
+    HomeView.recent => _recentView(context, settings, wide: wide),
+    HomeView.favorites => _favoritesView(context, settings, wide: wide),
+    HomeView.all => _allView(context, settings, wide: wide),
+    HomeView.settings => SettingsView(
+      onTitleLongPress: () => openVault(context),
+    ),
+  };
+
+  Widget _homeRail(
+    BuildContext context,
+    AppSettings settings,
+    List<HomeView> visibleViews,
+    HomeView currentView,
+  ) => NavigationRail(
+    selectedIndex: visibleViews.indexOf(currentView),
+    onDestinationSelected: (index) {
+      unawaited(settings.setHomeTab(visibleViews[index]));
+    },
+    labelType: NavigationRailLabelType.all,
+    groupAlignment: -1,
+    backgroundColor: Theme.of(context).colorScheme.surface,
+    destinations: [
+      for (final view in visibleViews)
+        NavigationRailDestination(
+          icon: Icon(view.icon),
+          selectedIcon: Icon(view.selectedIcon),
+          label: KeyedSubtree(
+            key: ValueKey('home-nav-${view.name}'),
+            child: Text(tr(context, view.englishName, view.chineseName)),
+          ),
+        ),
+    ],
+  );
+
+  Widget _bottomNav(
+    BuildContext context,
+    AppSettings settings,
+    List<HomeView> visibleViews,
+    HomeView currentView,
+  ) => NavigationBar(
+    selectedIndex: visibleViews.indexOf(currentView),
+    onDestinationSelected: (index) {
+      unawaited(settings.setHomeTab(visibleViews[index]));
+    },
+    destinations: [
+      for (final view in visibleViews)
+        NavigationDestination(
+          key: ValueKey('home-nav-${view.name}'),
+          icon: Icon(view.icon),
+          selectedIcon: Icon(view.selectedIcon),
+          label: tr(context, view.englishName, view.chineseName),
+        ),
+    ],
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -1003,50 +1269,75 @@ class HomeScreen extends StatelessWidget {
     final currentView = visibleViews.contains(settings.homeTab)
         ? settings.homeTab
         : visibleViews.first;
-    return Scaffold(
-      appBar: AppBar(
-        title: GestureDetector(
-          onLongPress: () => openVault(context),
-          child: Text(tr(context, 'Pockito', '妙物袋')),
-        ),
-        actions: [
-          if (!settings.isHomeViewVisible(HomeView.settings))
-            IconButton(
-              key: const ValueKey('home-settings-fallback'),
-              tooltip: tr(context, 'Settings', '设置'),
-              onPressed: () => _openSettings(context),
-              icon: const Icon(Icons.tune),
+    final showNavigation = visibleViews.length > 1;
+    final desktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+    final settingsVisible = settings.isHomeViewVisible(HomeView.settings);
+    final settingsFallback = settingsVisible
+        ? null
+        : IconButton(
+            key: const ValueKey('home-settings-fallback'),
+            tooltip: tr(context, 'Settings', '设置'),
+            onPressed: () => _openSettings(context),
+            icon: const Icon(Icons.tune),
+          );
+    final appBar = !desktop
+        ? AppBar(
+            title: GestureDetector(
+              onLongPress: () => openVault(context),
+              child: Text(tr(context, 'Pockito', '妙物袋')),
             ),
-        ],
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: switch (currentView) {
-            HomeView.recent => _recentView(context, settings),
-            HomeView.favorites => _favoritesView(context, settings),
-            HomeView.all => _allView(context, settings),
-            HomeView.settings => const SettingsView(),
-          },
-        ),
-      ),
-      bottomNavigationBar: visibleViews.length > 1
-          ? NavigationBar(
-              selectedIndex: visibleViews.indexOf(currentView),
-              onDestinationSelected: (index) {
-                unawaited(settings.setHomeTab(visibleViews[index]));
-              },
-              destinations: [
-                for (final view in visibleViews)
-                  NavigationDestination(
-                    key: ValueKey('home-nav-${view.name}'),
-                    icon: Icon(view.icon),
-                    selectedIcon: Icon(view.selectedIcon),
-                    label: tr(context, view.englishName, view.chineseName),
+            actions: [?settingsFallback],
+          )
+        : settingsVisible
+        ? null
+        : AppBar(title: null, actions: [settingsFallback!]);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 900;
+        return Scaffold(
+          appBar: appBar,
+          body: wide
+              ? Row(
+                  children: [
+                    if (showNavigation) ...[
+                      _homeRail(context, settings, visibleViews, currentView),
+                      const VerticalDivider(width: 1),
+                    ],
+                    Expanded(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: currentView == HomeView.settings
+                                ? 720
+                                : 1120,
+                          ),
+                          child: _viewFor(
+                            context,
+                            settings,
+                            currentView,
+                            wide: wide,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 720),
+                    child: _viewFor(
+                      context,
+                      settings,
+                      currentView,
+                      wide: false,
+                    ),
                   ),
-              ],
-            )
-          : null,
+                ),
+          bottomNavigationBar: !wide && showNavigation
+              ? _bottomNav(context, settings, visibleViews, currentView)
+              : null,
+        );
+      },
     );
   }
 }
@@ -1116,40 +1407,74 @@ class _HomeSectionHeader extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.action,
+    this.expanded = false,
+    this.compactActionWidth = 0,
+    this.onTitleLongPress,
   });
 
   final String title;
   final String subtitle;
   final Widget? action;
+  final bool expanded;
+  final double compactActionWidth;
+  final VoidCallback? onTitleLongPress;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Row(
+    final titleWidget = Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+    );
+    final titleColumn = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
+        if (onTitleLongPress == null)
+          titleWidget
+        else
+          GestureDetector(onLongPress: onTitleLongPress, child: titleWidget),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        ?action,
       ],
+    );
+    if (action == null) {
+      return titleColumn;
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compactWidth = compactActionWidth
+            .clamp(0.0, constraints.maxWidth)
+            .toDouble();
+        final maxExpandedWidth = (constraints.maxWidth - 110 - 12)
+            .clamp(compactWidth, constraints.maxWidth)
+            .toDouble();
+        final targetWidth = expanded
+            ? min(compactWidth + 48, maxExpandedWidth)
+            : compactWidth;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(child: titleColumn),
+            const SizedBox(width: 12),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              width: targetWidth,
+              child: action!,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -1160,13 +1485,17 @@ class _HomeEmptyState extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
-    this.onBrowse,
+    this.actionLabel,
+    this.actionIcon = Icons.grid_view_outlined,
+    this.onAction,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
-  final VoidCallback? onBrowse;
+  final String? actionLabel;
+  final IconData actionIcon;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -1191,12 +1520,12 @@ class _HomeEmptyState extends StatelessWidget {
               ),
               textAlign: TextAlign.center,
             ),
-            if (onBrowse != null) ...[
+            if (onAction != null && actionLabel != null) ...[
               const SizedBox(height: 18),
               FilledButton.tonalIcon(
-                onPressed: onBrowse,
-                icon: const Icon(Icons.grid_view_outlined),
-                label: Text(tr(context, 'Browse all tools', '浏览全部工具')),
+                onPressed: onAction,
+                icon: Icon(actionIcon),
+                label: Text(actionLabel!),
               ),
             ],
           ],
@@ -1282,25 +1611,34 @@ class _AppearanceControls extends StatelessWidget {
 }
 
 class SettingsView extends StatelessWidget {
-  const SettingsView({super.key, this.showHeader = true});
+  const SettingsView({
+    super.key,
+    this.showHeader = true,
+    this.onTitleLongPress,
+  });
 
   final bool showHeader;
+  final VoidCallback? onTitleLongPress;
 
   @override
   Widget build(BuildContext context) {
     final settings = AppSettings.of(context);
     final theme = Theme.of(context);
+    final headerTitle = Text(
+      tr(context, 'Settings', '设置'),
+      style: theme.textTheme.headlineSmall?.copyWith(
+        fontWeight: FontWeight.w600,
+      ),
+    );
     return ListView(
       key: const PageStorageKey('home-settings'),
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
       children: [
         if (showHeader) ...[
-          Text(
-            tr(context, 'Settings', '设置'),
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          if (onTitleLongPress == null)
+            headerTitle
+          else
+            GestureDetector(onLongPress: onTitleLongPress, child: headerTitle),
           const SizedBox(height: 4),
           Text(
             tr(context, 'Appearance, language and home tabs.', '外观、语言与首页界面。'),

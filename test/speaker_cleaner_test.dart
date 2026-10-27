@@ -3,6 +3,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pockito/main.dart';
 
+Finder homeScrollable() => find
+    .descendant(
+      of: find.byKey(const PageStorageKey('home-all')),
+      matching: find.byType(Scrollable),
+    )
+    .first;
+
 void main() {
   group('speaker cleaner helpers', () {
     test('clamps frequencies to the cleaning range', () {
@@ -93,7 +100,13 @@ void main() {
 
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Speaker Cleaner'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Speaker Cleaner'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Speaker Cleaner'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Speaker Cleaner'));
     await tester.pumpAndSettle();
 
@@ -116,7 +129,13 @@ void main() {
 
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Speaker Cleaner'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Speaker Cleaner'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Speaker Cleaner'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Speaker Cleaner'));
     await tester.pumpAndSettle();
 
@@ -144,7 +163,13 @@ void main() {
 
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Speaker Cleaner'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Speaker Cleaner'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Speaker Cleaner'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Speaker Cleaner'));
     await tester.pumpAndSettle();
 
@@ -167,7 +192,13 @@ void main() {
 
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Speaker Cleaner'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Speaker Cleaner'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Speaker Cleaner'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Speaker Cleaner'));
     await tester.pumpAndSettle();
 

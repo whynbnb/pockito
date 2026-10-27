@@ -3,6 +3,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pockito/main.dart';
 
+Finder homeScrollable() => find
+    .byWidgetPredicate(
+      (widget) =>
+          widget is Scrollable && widget.axisDirection == AxisDirection.down,
+    )
+    .first;
+
 void main() {
   test('every tool implements the info interface', () {
     expect(toolInfos, isNotEmpty);
@@ -75,7 +82,13 @@ void main() {
   ) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Frequency Generator'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Frequency Generator'));
     await tester.pumpAndSettle();
 
@@ -97,7 +110,11 @@ void main() {
   for (final tool in toolInfos.where((tool) => !tool.hasAcknowledgements)) {
     testWidgets('${tool.id} hides the info action', (tester) async {
       await tester.pumpWidget(const VaultApp());
-      await tester.scrollUntilVisible(find.text(tool.englishTitle), 200.0);
+      await tester.scrollUntilVisible(
+        find.text(tool.englishTitle),
+        200.0,
+        scrollable: homeScrollable(),
+      );
       await tester.ensureVisible(find.text(tool.englishTitle));
       await tester.pumpAndSettle();
       await tester.tap(find.text(tool.englishTitle));
@@ -115,7 +132,11 @@ void main() {
     testWidgets('${tool.id} exposes the info interface', (tester) async {
       await tester.pumpWidget(const VaultApp());
 
-      await tester.scrollUntilVisible(find.text(tool.englishTitle), 200.0);
+      await tester.scrollUntilVisible(
+        find.text(tool.englishTitle),
+        200.0,
+        scrollable: homeScrollable(),
+      );
       await tester.ensureVisible(find.text(tool.englishTitle));
       await tester.pumpAndSettle();
       await tester.tap(find.text(tool.englishTitle));

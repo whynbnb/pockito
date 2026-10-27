@@ -5,6 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pockito/main.dart';
 import 'package:timezone/timezone.dart' as tz;
 
+Finder homeScrollable() => find
+    .byWidgetPredicate(
+      (widget) =>
+          widget is Scrollable && widget.axisDirection == AxisDirection.down,
+    )
+    .first;
+
 class _MemoryPreferences extends LocalPreferences {
   _MemoryPreferences(this.values);
 
@@ -121,7 +128,11 @@ void main() {
   testWidgets('opens the world clock from the tool list', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('World Clock'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('World Clock'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
     await tester.ensureVisible(find.text('World Clock'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('World Clock'));

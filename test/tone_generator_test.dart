@@ -6,6 +6,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pockito/main.dart';
 
+Finder homeScrollable() => find
+    .descendant(
+      of: find.byKey(const PageStorageKey('home-all')),
+      matching: find.byType(Scrollable),
+    )
+    .first;
+
 void main() {
   group('frequency helpers', () {
     test('clamps frequencies to the audible slider range', () {
@@ -193,7 +200,13 @@ void main() {
 
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Frequency Generator'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Frequency Generator'));
     await tester.pumpAndSettle();
 
@@ -212,7 +225,13 @@ void main() {
   ) async {
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Frequency Generator'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Frequency Generator'));
     await tester.pumpAndSettle();
 
@@ -251,7 +270,13 @@ void main() {
 
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Frequency Generator'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Frequency Generator'));
     await tester.pumpAndSettle();
 
@@ -290,7 +315,13 @@ void main() {
 
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Frequency Generator'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Frequency Generator'));
     await tester.pumpAndSettle();
 
@@ -328,7 +359,13 @@ void main() {
 
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Frequency Generator'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Frequency Generator'));
     await tester.pumpAndSettle();
 
@@ -417,7 +454,13 @@ void main() {
 
     await tester.pumpWidget(const VaultApp());
 
-    await tester.scrollUntilVisible(find.text('Frequency Generator'), 200.0);
+    await tester.scrollUntilVisible(
+      find.text('Frequency Generator'),
+      200.0,
+      scrollable: homeScrollable(),
+    );
+    await tester.ensureVisible(find.text('Frequency Generator'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Frequency Generator'));
     await tester.pumpAndSettle();
 
