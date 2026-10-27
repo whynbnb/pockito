@@ -10,6 +10,15 @@ Finder homeScrollable() => find
     )
     .first;
 
+Future<void> scrollToCredit(WidgetTester tester, String text) async {
+  await tester.scrollUntilVisible(
+    find.textContaining(text),
+    200.0,
+    scrollable: find.byType(Scrollable).last,
+  );
+  await tester.pumpAndSettle();
+}
+
 class _MemoryPreferences extends LocalPreferences {
   _MemoryPreferences(this.values);
 
@@ -57,6 +66,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.info_outline));
     await tester.pumpAndSettle();
+    await scrollToCredit(tester, 'Vectura Games');
 
     expect(find.text('Acknowledgements'), findsOneWidget);
     expect(find.textContaining('Vectura Games'), findsOneWidget);
@@ -303,6 +313,7 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.info_outline));
     await tester.pumpAndSettle();
+    await scrollToCredit(tester, 'FlashDim');
 
     expect(find.text('Acknowledgements'), findsOneWidget);
     expect(find.textContaining('FlashDim'), findsOneWidget);
@@ -344,9 +355,10 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.info_outline));
     await tester.pumpAndSettle();
+    await scrollToCredit(tester, 'Neïl Rahmouni');
 
     expect(find.text('Acknowledgements'), findsOneWidget);
-    expect(find.textContaining('Counters'), findsOneWidget);
+    expect(find.textContaining('Counters by Neïl Rahmouni'), findsOneWidget);
   });
 
   testWidgets('opens the game counter and increments a player', (tester) async {
@@ -522,9 +534,10 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.info_outline));
     await tester.pumpAndSettle();
+    await scrollToCredit(tester, 'gamecounter by multun');
 
     expect(find.text('Acknowledgements'), findsOneWidget);
-    expect(find.textContaining('open-source gamecounter'), findsOneWidget);
+    expect(find.textContaining('gamecounter by multun'), findsOneWidget);
   });
 
   testWidgets('switches game scenes from the app bar', (tester) async {
@@ -558,9 +571,10 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.info_outline));
     await tester.pumpAndSettle();
+    await scrollToCredit(tester, 'Dooz by yamin8000');
 
     expect(find.text('Acknowledgements'), findsOneWidget);
-    expect(find.textContaining('open-source Dooz'), findsOneWidget);
+    expect(find.textContaining('Dooz by yamin8000'), findsOneWidget);
   });
 
   testWidgets('opens the tic tac toe tool', (tester) async {

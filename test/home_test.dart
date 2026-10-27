@@ -241,6 +241,33 @@ void main() {
     expect(find.byKey(const ValueKey('home-search-empty-all')), findsNothing);
   });
 
+  testWidgets('finds tools by tag', (tester) async {
+    await pumpHome(tester, _MemoryPreferences(<String, String>{}));
+
+    final search = find.byKey(const ValueKey('home-search-all'));
+    await tester.enterText(search, 'Board games');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('tool-tile-game-counter')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('tool-tile-clock')), findsNothing);
+    expect(find.text('1 result'), findsOneWidget);
+
+    await tester.enterText(search, '音频');
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('tool-tile-tone-generator')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('tool-tile-speaker-cleaner')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('tool-tile-clock')), findsNothing);
+  });
+
   testWidgets('expands the mobile search field on focus', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;

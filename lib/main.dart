@@ -771,6 +771,397 @@ ToolInfo? toolInfoById(String id) {
   return null;
 }
 
+class ToolText {
+  const ToolText(this.english, this.chinese);
+
+  final String english;
+  final String chinese;
+
+  String resolve(BuildContext context) => tr(context, english, chinese);
+}
+
+enum ToolPlatform { android, ios, macos, windows, linux }
+
+enum ToolPlatformSupport { full, partial, none }
+
+class ToolPlatformStatus {
+  const ToolPlatformStatus(this.platform, this.support);
+
+  final ToolPlatform platform;
+  final ToolPlatformSupport support;
+}
+
+const _allPlatforms = <ToolPlatformStatus>[
+  ToolPlatformStatus(ToolPlatform.android, ToolPlatformSupport.full),
+  ToolPlatformStatus(ToolPlatform.ios, ToolPlatformSupport.full),
+  ToolPlatformStatus(ToolPlatform.macos, ToolPlatformSupport.full),
+  ToolPlatformStatus(ToolPlatform.windows, ToolPlatformSupport.full),
+  ToolPlatformStatus(ToolPlatform.linux, ToolPlatformSupport.full),
+];
+
+const _desktopPartialPlatforms = <ToolPlatformStatus>[
+  ToolPlatformStatus(ToolPlatform.android, ToolPlatformSupport.full),
+  ToolPlatformStatus(ToolPlatform.ios, ToolPlatformSupport.full),
+  ToolPlatformStatus(ToolPlatform.macos, ToolPlatformSupport.partial),
+  ToolPlatformStatus(ToolPlatform.windows, ToolPlatformSupport.partial),
+  ToolPlatformStatus(ToolPlatform.linux, ToolPlatformSupport.partial),
+];
+
+const _mobileOnlyPlatforms = <ToolPlatformStatus>[
+  ToolPlatformStatus(ToolPlatform.android, ToolPlatformSupport.full),
+  ToolPlatformStatus(ToolPlatform.ios, ToolPlatformSupport.full),
+  ToolPlatformStatus(ToolPlatform.macos, ToolPlatformSupport.none),
+  ToolPlatformStatus(ToolPlatform.windows, ToolPlatformSupport.none),
+  ToolPlatformStatus(ToolPlatform.linux, ToolPlatformSupport.none),
+];
+
+class ToolDetails {
+  const ToolDetails({
+    required this.tags,
+    required this.scope,
+    required this.limitations,
+    required this.released,
+    required this.updated,
+    this.platforms = _allPlatforms,
+    this.version = '1.0',
+  });
+
+  final List<ToolText> tags;
+  final ToolText scope;
+  final List<ToolText> limitations;
+  final List<ToolPlatformStatus> platforms;
+  final String version;
+  final String released;
+  final String updated;
+}
+
+const toolDetailsById = <String, ToolDetails>{
+  'password-generator': ToolDetails(
+    tags: [
+      ToolText('Security', '安全'),
+      ToolText('Generator', '生成器'),
+      ToolText('Offline', '离线'),
+      ToolText('Privacy', '隐私'),
+    ],
+    scope: ToolText(
+      'Generate passwords for websites, apps and local accounts. Everything '
+          'runs on the device.',
+      '为网站、应用和本地账号生成密码，全部在设备本地完成。',
+    ),
+    limitations: [
+      ToolText(
+        'Generated passwords stay in the app until you copy them.',
+        '生成的密码只保存在应用内，需要手动复制。',
+      ),
+      ToolText(
+        'Strength depends on the chosen length and character filters.',
+        '密码强度取决于所选长度与字符过滤条件。',
+      ),
+      ToolText(
+        'Uses the platform random source; a compromised device is out of scope.',
+        '使用系统随机源，无法防御已被攻破的设备。',
+      ),
+    ],
+    released: '2026-09-05',
+    updated: '2026-09-05',
+  ),
+  'counter': ToolDetails(
+    tags: [
+      ToolText('Utility', '实用'),
+      ToolText('Tracking', '记录'),
+      ToolText('Offline', '离线'),
+    ],
+    scope: ToolText(
+      'Tally repeated events such as habits, visitors, repetitions or stock '
+          'counts with a single tap.',
+      '统计习惯、访客、重复次数或库存等需要随手加一的事件。',
+    ),
+    limitations: [
+      ToolText(
+        'Counters and their history stay on this device.',
+        '计数器与记录只保存在本机。',
+      ),
+      ToolText(
+        'History records are kept per counter and can be cleared at any time.',
+        '每个计数器的记录单独保存，可随时清除。',
+      ),
+      ToolText('There is no cloud sync between devices.', '不支持多设备云同步。'),
+    ],
+    released: '2026-09-26',
+    updated: '2026-09-26',
+  ),
+  'game-counter': ToolDetails(
+    tags: [
+      ToolText('Board games', '桌游'),
+      ToolText('Score', '计分'),
+      ToolText('Multiplayer', '多人'),
+      ToolText('Party', '聚会'),
+    ],
+    scope: ToolText(
+      'Keep score for board games, card games and party games with several '
+          'players.',
+      '为桌游、卡牌和聚会游戏记录多位玩家的分数。',
+    ),
+    limitations: [
+      ToolText('Only one scene is active at a time.', '同一时间只能使用一个场景。'),
+      ToolText(
+        'History is stored per scene and can be cleared from the history '
+            'screen.',
+        '历史记录按场景保存，可在历史界面清除。',
+      ),
+      ToolText('Scores live on this device only.', '分数只保存在本机。'),
+    ],
+    released: '2026-09-27',
+    updated: '2026-09-27',
+  ),
+  'basexx': ToolDetails(
+    tags: [
+      ToolText('Developer', '开发者'),
+      ToolText('Encoding', '编码'),
+      ToolText('Text', '文本'),
+    ],
+    scope: ToolText(
+      'Convert text between Base16, Base32, Base58 and Base64, for example '
+          'tokens, IDs and debugging payloads.',
+      '在 Base16、Base32、Base58 与 Base64 之间转换文本，适合令牌、ID 和调试。',
+    ),
+    limitations: [
+      ToolText(
+        'Works on text only; there is no file or binary input.',
+        '仅支持文本，不能直接处理文件或二进制数据。',
+      ),
+      ToolText(
+        'Invalid input shows an error instead of guessing a repair.',
+        '输入无效时会报错，不会尝试猜测修复。',
+      ),
+      ToolText('Large inputs are processed in memory.', '较大的输入全部在内存中处理。'),
+    ],
+    released: '2026-09-26',
+    updated: '2026-09-26',
+  ),
+  '2048': ToolDetails(
+    tags: [
+      ToolText('Game', '游戏'),
+      ToolText('Puzzle', '益智'),
+      ToolText('Offline', '离线'),
+    ],
+    scope: ToolText(
+      'Take a short break with the classic sliding tile puzzle.',
+      '用经典滑动方块拼图休息片刻。',
+    ),
+    limitations: [
+      ToolText(
+        'Auto play does not guarantee reaching 2048.',
+        '自动游玩不保证能合成 2048。',
+      ),
+      ToolText(
+        'Large boards need more screen space and are cramped on small phones.',
+        '大棋盘需要更多屏幕空间，小屏手机上会比较拥挤。',
+      ),
+      ToolText('Scores are not uploaded anywhere.', '分数不会上传到任何地方。'),
+    ],
+    released: '2026-09-26',
+    updated: '2026-09-26',
+  ),
+  'tic-tac-toe': ToolDetails(
+    tags: [
+      ToolText('Game', '游戏'),
+      ToolText('Board', '棋盘'),
+      ToolText('Bot', '机器人'),
+    ],
+    scope: ToolText(
+      'Play a quick match against the bot or with a friend on one device.',
+      '与电脑或同一台设备上的朋友来一局快速对战。',
+    ),
+    limitations: [
+      ToolText(
+        'The bot does not learn and plays the same way on the same difficulty.',
+        '机器人不会学习，同一难度下走法固定。',
+      ),
+      ToolText('Two-player mode shares one screen.', '双人模式共用一块屏幕。'),
+      ToolText('Custom marks are text only.', '自定义符号只支持文本。'),
+    ],
+    released: '2026-09-26',
+    updated: '2026-09-26',
+  ),
+  'flashlight': ToolDetails(
+    tags: [
+      ToolText('Hardware', '硬件'),
+      ToolText('Light', '照明'),
+      ToolText('Morse', '摩尔斯'),
+      ToolText('SOS', '求救'),
+    ],
+    scope: ToolText(
+      'Light up dark spaces, send SOS signals or practise Morse code.',
+      '在黑暗环境中照明、发送 SOS 信号或练习摩尔斯电码。',
+    ),
+    limitations: [
+      ToolText(
+        'Needs a camera flash; desktop platforms only offer Morse code.',
+        '需要相机闪光灯；桌面平台只保留摩尔斯电码。',
+      ),
+      ToolText(
+        'Brightness control depends on hardware support.',
+        '亮度调节取决于硬件是否支持。',
+      ),
+      ToolText(
+        'Sustained use may heat the LED and drain the battery.',
+        '长时间使用会使 LED 发热并消耗电量。',
+      ),
+    ],
+    platforms: _desktopPartialPlatforms,
+    released: '2026-09-26',
+    updated: '2026-09-26',
+  ),
+  'vibrator': ToolDetails(
+    tags: [
+      ToolText('Hardware', '硬件'),
+      ToolText('Haptics', '触感'),
+      ToolText('Patterns', '模式'),
+    ],
+    scope: ToolText(
+      'Test vibration, build custom patterns or use tactile timing cues.',
+      '测试震动、编排自定义模式，或作为触感提示。',
+    ),
+    limitations: [
+      ToolText(
+        'Needs a vibration motor; desktop platforms have no vibration '
+            'hardware.',
+        '需要震动马达；桌面平台没有震动硬件。',
+      ),
+      ToolText(
+        'Custom patterns use the comma-separated format shown in the app.',
+        '自定义模式需使用应用中展示的逗号分隔格式。',
+      ),
+      ToolText('Vibration strength is controlled by the system.', '震动强度由系统控制。'),
+    ],
+    platforms: _mobileOnlyPlatforms,
+    released: '2026-09-27',
+    updated: '2026-09-27',
+  ),
+  'tone-generator': ToolDetails(
+    tags: [
+      ToolText('Audio', '音频'),
+      ToolText('Frequency', '频率'),
+      ToolText('Health', '健康'),
+      ToolText('Testing', '测试'),
+    ],
+    scope: ToolText(
+      'Test speakers and headphones, mask noise, or try the 100 Hz '
+          'motion-sickness note.',
+      '测试扬声器与耳机、掩蔽噪声，或尝试 100 Hz 缓解晕车音。',
+    ),
+    limitations: [
+      ToolText(
+        'High volume can distort small speakers; start low.',
+        '高音量会让小扬声器失真，请从低音量开始。',
+      ),
+      ToolText(
+        'Playback keeps running in the background until you stop it.',
+        '播放会在后台持续，直到手动停止。',
+      ),
+      ToolText(
+        'The 100 Hz note is a comfort aid, not medical advice.',
+        '100 Hz 说明仅为舒适性参考，不构成医疗建议。',
+      ),
+    ],
+    released: '2026-10-24',
+    updated: '2026-10-25',
+  ),
+  'speaker-cleaner': ToolDetails(
+    tags: [
+      ToolText('Audio', '音频'),
+      ToolText('Maintenance', '维护'),
+      ToolText('Hardware', '硬件'),
+    ],
+    scope: ToolText(
+      'Pulse low tones and vibration to shake water or dust out of a phone '
+          'speaker.',
+      '用低频脉冲与震动把手机扬声器里的水或灰尘震出。',
+    ),
+    limitations: [
+      ToolText(
+        'Water ejection is not guaranteed; repeat only a few times.',
+        '不保证能完全排水，请只重复少量次数。',
+      ),
+      ToolText(
+        'Keep away from charging ports and do not use at full volume.',
+        '远离充电口，不要使用最大音量。',
+      ),
+      ToolText(
+        'Desktop platforms have no speaker water protection and no '
+            'vibration.',
+        '桌面平台没有扬声器防水需求，也没有震动。',
+      ),
+    ],
+    platforms: _desktopPartialPlatforms,
+    released: '2026-10-26',
+    updated: '2026-10-26',
+  ),
+  'clock': ToolDetails(
+    tags: [
+      ToolText('Time', '时间'),
+      ToolText('Display', '显示'),
+      ToolText('Wake lock', '常亮'),
+    ],
+    scope: ToolText(
+      'Turn the device into a bedside or desk clock with five faces and a '
+          'wake lock.',
+      '把设备变成床头或桌面时钟，提供五种表盘与屏幕常亮。',
+    ),
+    limitations: [
+      ToolText(
+        'The wake lock keeps the screen on and increases battery use.',
+        '屏幕常亮会明显增加耗电。',
+      ),
+      ToolText(
+        'Fullscreen mode hides the system bars and the app bar.',
+        '全屏模式会隐藏系统栏与应用栏。',
+      ),
+      ToolText(
+        'Some faces animate continuously and may drop frames on older '
+            'devices.',
+        '部分表盘持续动画，旧设备上可能掉帧。',
+      ),
+    ],
+    released: '2026-10-26',
+    updated: '2026-10-26',
+  ),
+  'world-clock': ToolDetails(
+    tags: [
+      ToolText('Time', '时间'),
+      ToolText('Timezones', '时区'),
+      ToolText('Travel', '出行'),
+      ToolText('Display', '显示'),
+    ],
+    scope: ToolText(
+      'Check several time zones at a glance on a desk, wall or travel '
+          'display.',
+      '在桌面、墙面或旅途中一眼查看多个时区。',
+    ),
+    limitations: [
+      ToolText(
+        'Time zones come from a bundled IANA database; very recent political '
+            'changes may lag.',
+        '时区数据来自内置的 IANA 数据库，最新的政治变更可能滞后。',
+      ),
+      ToolText(
+        'The city list is curated, not every city is included.',
+        '城市列表经过挑选，并未收录所有城市。',
+      ),
+      ToolText(
+        'The flip board is designed for dark backgrounds and can be bright at '
+            'night.',
+        '翻页牌为深色背景设计，夜间可能偏亮。',
+      ),
+    ],
+    released: '2026-10-26',
+    updated: '2026-10-26',
+  ),
+};
+
+ToolDetails? toolDetailsFor(String id) => toolDetailsById[id];
+
 String toolCreditDescription(
   BuildContext context,
   ToolInfo tool,
@@ -874,56 +1265,413 @@ class _LicenseBadge extends StatelessWidget {
   }
 }
 
-Future<void> showToolAcknowledgements(BuildContext context, ToolInfo tool) =>
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr(context, 'Acknowledgements', '致谢')),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+String toolPlatformName(ToolPlatform platform) => switch (platform) {
+  ToolPlatform.android => 'Android',
+  ToolPlatform.ios => 'iOS',
+  ToolPlatform.macos => 'macOS',
+  ToolPlatform.windows => 'Windows',
+  ToolPlatform.linux => 'Linux',
+};
+
+IconData _toolPlatformIcon(ToolPlatform platform) => switch (platform) {
+  ToolPlatform.android => Icons.phone_android,
+  ToolPlatform.ios => Icons.phone_iphone,
+  ToolPlatform.macos => Icons.laptop_mac,
+  ToolPlatform.windows => Icons.desktop_windows,
+  ToolPlatform.linux => Icons.computer,
+};
+
+Future<void> openToolDetails(BuildContext context, String toolId) {
+  final tool = toolInfoById(toolId);
+  if (tool == null) return Future<void>.value();
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(builder: (_) => ToolDetailsScreen(tool: tool)),
+  );
+}
+
+Widget toolInfoAction(BuildContext context, String toolId) => IconButton(
+  key: ValueKey('tool-info-$toolId'),
+  tooltip: tr(context, 'Tool details', '工具详细信息'),
+  onPressed: () => unawaited(openToolDetails(context, toolId)),
+  icon: const Icon(Icons.info_outline),
+);
+
+class ToolDetailsScreen extends StatelessWidget {
+  const ToolDetailsScreen({super.key, required this.tool});
+
+  final ToolInfo tool;
+
+  @override
+  Widget build(BuildContext context) {
+    final details = toolDetailsById[tool.id]!;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: Text(tr(context, 'Tool details', '工具详细信息'))),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: ListView(
+            key: ValueKey('tool-details-${tool.id}'),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
             children: [
-              if (!tool.hasAcknowledgements)
-                Text(
-                  tr(
-                    context,
-                    'No acknowledgements for this tool.',
-                    '此工具没有需要标记的致谢信息。',
-                  ),
+              _ToolDetailHeader(tool: tool, details: details),
+              const SizedBox(height: 16),
+              _ToolDetailCard(
+                icon: Icons.explore_outlined,
+                title: tr(context, 'Best for', '适用范围'),
+                child: Text(
+                  details.scope.resolve(context),
+                  style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
                 ),
-              for (var i = 0; i < tool.credits.length; i++) ...[
-                if (i > 0) const Divider(height: 24),
-                Text(toolCreditDescription(context, tool, tool.credits[i])),
-                const SizedBox(height: 12),
-                _LicenseBadge(
-                  text: tr(
-                    context,
-                    'License: ${tool.credits[i].license}',
-                    '许可证：${tool.credits[i].license}',
-                  ),
+              ),
+              const SizedBox(height: 12),
+              _ToolDetailCard(
+                icon: Icons.devices_outlined,
+                title: tr(context, 'Device support', '适配情况'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final status in details.platforms)
+                      _ToolDetailPlatformRow(status: status),
+                    if (tool.englishNote.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        tr(context, tool.englishNote, tool.chineseNote),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(height: 8),
-                _ToolLink(url: tool.credits[i].url),
-              ],
-              if (tool.englishNote.isNotEmpty) ...[
-                const Divider(height: 24),
-                Text(
-                  tr(context, tool.englishNote, tool.chineseNote),
-                  style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              _ToolDetailCard(
+                icon: Icons.sell_outlined,
+                title: tr(context, 'Version and dates', '版本与日期'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _ToolDetailMetaRow(
+                      label: tr(context, 'Version', '版本'),
+                      value: details.version,
+                    ),
+                    _ToolDetailMetaRow(
+                      label: tr(context, 'Released', '发布日期'),
+                      value: details.released,
+                    ),
+                    _ToolDetailMetaRow(
+                      label: tr(context, 'Last updated', '最后更新'),
+                      value: details.updated,
+                    ),
+                  ],
                 ),
-              ],
+              ),
+              const SizedBox(height: 12),
+              _ToolDetailCard(
+                icon: Icons.bug_report_outlined,
+                title: tr(context, 'Known limitations', '已知缺陷'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final limitation in details.limitations)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 7),
+                              child: Icon(
+                                Icons.circle,
+                                size: 6,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                limitation.resolve(context),
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _ToolDetailCard(
+                icon: Icons.handshake_outlined,
+                title: tr(context, 'Acknowledgements', '致谢'),
+                child: _ToolCreditList(tool: tool),
+              ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(tr(context, 'Close', '关闭')),
+      ),
+    );
+  }
+}
+
+class _ToolDetailHeader extends StatelessWidget {
+  const _ToolDetailHeader({required this.tool, required this.details});
+
+  final ToolInfo tool;
+  final ToolDetails details;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: scheme.primaryContainer,
+                foregroundColor: scheme.onPrimaryContainer,
+                child: Icon(tool.icon, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tr(context, tool.englishTitle, tool.chineseTitle),
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      tr(context, tool.englishSubtitle, tool.chineseSubtitle),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final tag in details.tags)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    tag.resolve(context),
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: scheme.onSecondaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
     );
+  }
+}
+
+class _ToolDetailCard extends StatelessWidget {
+  const _ToolDetailCard({
+    required this.icon,
+    required this.title,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: scheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _ToolDetailMetaRow extends StatelessWidget {
+  const _ToolDetailMetaRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ToolDetailPlatformRow extends StatelessWidget {
+  const _ToolDetailPlatformRow({required this.status});
+
+  final ToolPlatformStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final (icon, color, label) = switch (status.support) {
+      ToolPlatformSupport.full => (
+        Icons.check_circle_outline,
+        scheme.primary,
+        tr(context, 'Supported', '支持'),
+      ),
+      ToolPlatformSupport.partial => (
+        Icons.remove_circle_outline,
+        Colors.amber,
+        tr(context, 'Partial', '部分支持'),
+      ),
+      ToolPlatformSupport.none => (
+        Icons.block_outlined,
+        scheme.onSurfaceVariant,
+        tr(context, 'Not available', '不支持'),
+      ),
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(
+            _toolPlatformIcon(status.platform),
+            size: 18,
+            color: scheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              toolPlatformName(status.platform),
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ToolCreditList extends StatelessWidget {
+  const _ToolCreditList({required this.tool});
+
+  final ToolInfo tool;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (!tool.hasAcknowledgements) {
+      return Text(
+        tr(context, 'No acknowledgements for this tool.', '此工具没有需要标记的致谢信息。'),
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < tool.credits.length; i++) ...[
+          if (i > 0) const Divider(height: 24),
+          Text(toolCreditDescription(context, tool, tool.credits[i])),
+          const SizedBox(height: 12),
+          _LicenseBadge(
+            text: tr(
+              context,
+              'License: ${tool.credits[i].license}',
+              '许可证：${tool.credits[i].license}',
+            ),
+          ),
+          const SizedBox(height: 8),
+          _ToolLink(url: tool.credits[i].url),
+        ],
+      ],
+    );
+  }
+}
 
 Future<void> openVault(BuildContext context) async {
   final store = VaultStore();
@@ -1007,13 +1755,25 @@ class _HomeScreenState extends State<HomeScreen> {
     if (needle.isEmpty) return tools;
     return [
       for (final tool in tools)
-        if (tool.englishTitle.toLowerCase().contains(needle) ||
-            tool.chineseTitle.contains(needle) ||
-            tool.englishSubtitle.toLowerCase().contains(needle) ||
-            tool.chineseSubtitle.contains(needle) ||
-            tool.id.toLowerCase().contains(needle))
-          tool,
+        if (_toolMatches(tool, needle)) tool,
     ];
+  }
+
+  bool _toolMatches(ToolInfo tool, String needle) {
+    if (tool.englishTitle.toLowerCase().contains(needle) ||
+        tool.chineseTitle.contains(needle) ||
+        tool.englishSubtitle.toLowerCase().contains(needle) ||
+        tool.chineseSubtitle.contains(needle) ||
+        tool.id.toLowerCase().contains(needle)) {
+      return true;
+    }
+    final details = toolDetailsById[tool.id];
+    if (details == null) return false;
+    return details.tags.any(
+      (tag) =>
+          tag.english.toLowerCase().contains(needle) ||
+          tag.chinese.contains(needle),
+    );
   }
 
   String _toolCount(
@@ -2682,14 +3442,7 @@ class _CounterScreenState extends State<CounterScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(tr(context, '+1 Counter', '+1 计数器')),
-        actions: [
-          IconButton(
-            tooltip: tr(context, 'Acknowledgements', '致谢'),
-            onPressed: () =>
-                showToolAcknowledgements(context, toolInfoById('counter')!),
-            icon: const Icon(Icons.info_outline),
-          ),
-        ],
+        actions: [toolInfoAction(context, 'counter')],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _add,
@@ -3237,14 +3990,7 @@ class _GameCounterScreenState extends State<GameCounterScreen> {
             onPressed: _openSettings,
             icon: const Icon(Icons.tune),
           ),
-          IconButton(
-            tooltip: tr(context, 'Acknowledgements', '致谢'),
-            onPressed: () => showToolAcknowledgements(
-              context,
-              toolInfoById('game-counter')!,
-            ),
-            icon: const Icon(Icons.info_outline),
-          ),
+          toolInfoAction(context, 'game-counter'),
         ],
       ),
       body: scene == null || scene.users.isEmpty
@@ -4483,7 +5229,10 @@ class _BaseCodecScreenState extends State<BaseCodecScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(tr(context, 'Basexx', 'Base 编解码'))),
+      appBar: AppBar(
+        title: Text(tr(context, 'Basexx', 'Base 编解码')),
+        actions: [toolInfoAction(context, 'basexx')],
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 720),
@@ -5162,6 +5911,7 @@ class _Game2048ScreenState extends State<Game2048Screen> {
           onPressed: _restart,
           icon: const Icon(Icons.restart_alt),
         ),
+        toolInfoAction(context, '2048'),
       ],
     ),
     body: Center(
@@ -5807,12 +6557,7 @@ class _TicTacToeScreenState extends State<TicTacToeScreen> {
           onPressed: _restart,
           icon: const Icon(Icons.restart_alt),
         ),
-        IconButton(
-          tooltip: tr(context, 'Acknowledgements', '致谢'),
-          onPressed: () =>
-              showToolAcknowledgements(context, toolInfoById('tic-tac-toe')!),
-          icon: const Icon(Icons.info_outline),
-        ),
+        toolInfoAction(context, 'tic-tac-toe'),
       ],
     ),
     body: Center(
@@ -6582,12 +7327,7 @@ class _FlashlightScreenState extends State<FlashlightScreen>
                 : () => _setMode(_FlashMode.off),
             icon: const Icon(Icons.stop_circle_outlined),
           ),
-        IconButton(
-          tooltip: tr(context, 'Acknowledgements', '致谢'),
-          onPressed: () =>
-              showToolAcknowledgements(context, toolInfoById('flashlight')!),
-          icon: const Icon(Icons.info_outline),
-        ),
+        toolInfoAction(context, 'flashlight'),
       ],
     ),
     body: Center(
@@ -7152,12 +7892,7 @@ class _VibratorScreenState extends State<VibratorScreen>
             onPressed: _playing ? _stop : null,
             icon: const Icon(Icons.stop_circle_outlined),
           ),
-        IconButton(
-          tooltip: tr(context, 'Acknowledgements', '致谢'),
-          onPressed: () =>
-              showToolAcknowledgements(context, toolInfoById('vibrator')!),
-          icon: const Icon(Icons.info_outline),
-        ),
+        toolInfoAction(context, 'vibrator'),
       ],
     ),
     body: Center(
@@ -8956,14 +9691,7 @@ class _ToneGeneratorScreenState extends State<ToneGeneratorScreen> {
             onPressed: _stop,
             icon: const Icon(Icons.stop_circle_outlined),
           ),
-        IconButton(
-          tooltip: tr(context, 'Acknowledgements', '致谢'),
-          onPressed: () => showToolAcknowledgements(
-            context,
-            toolInfoById('tone-generator')!,
-          ),
-          icon: const Icon(Icons.info_outline),
-        ),
+        toolInfoAction(context, 'tone-generator'),
       ],
     ),
     body: Center(
@@ -10163,6 +10891,7 @@ class _SpeakerCleanerScreenState extends State<SpeakerCleanerScreen> {
             onPressed: _stop,
             icon: const Icon(Icons.stop_circle_outlined),
           ),
+        toolInfoAction(context, 'speaker-cleaner'),
       ],
     ),
     body: Center(
@@ -12026,6 +12755,7 @@ class _ClockScreenState extends State<ClockScreen> with WidgetsBindingObserver {
                               onPressed: () => _setFullscreen(true),
                               icon: const Icon(Icons.fullscreen),
                             ),
+                            toolInfoAction(context, 'clock'),
                           ],
                         ),
                   body: body,
@@ -14721,6 +15451,7 @@ class _WorldClockScreenState extends State<WorldClockScreen>
             onPressed: _openBoardSettings,
             icon: const Icon(Icons.tune),
           ),
+          toolInfoAction(context, 'world-clock'),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -15812,14 +16543,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
           onPressed: _resetDefaults,
           icon: const Icon(Icons.restart_alt),
         ),
-        IconButton(
-          tooltip: tr(context, 'Acknowledgements', '致谢'),
-          onPressed: () => showToolAcknowledgements(
-            context,
-            toolInfoById('password-generator')!,
-          ),
-          icon: const Icon(Icons.info_outline),
-        ),
+        toolInfoAction(context, 'password-generator'),
       ],
     ),
     body: SingleChildScrollView(
