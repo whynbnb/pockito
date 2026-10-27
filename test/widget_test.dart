@@ -3,6 +3,20 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pockito/main.dart';
 
+class _MemoryPreferences extends LocalPreferences {
+  _MemoryPreferences(this.values);
+
+  final Map<String, String> values;
+
+  @override
+  Future<String?> getString(String key) async => values[key];
+
+  @override
+  Future<void> setString(String key, String value) async {
+    values[key] = value;
+  }
+}
+
 void main() {
   testWidgets('shows the tool list', (tester) async {
     await tester.pumpWidget(const VaultApp());
@@ -42,11 +56,16 @@ void main() {
   });
 
   testWidgets('changes the shared interface language', (tester) async {
-    await tester.pumpWidget(const VaultApp());
+    await tester.pumpWidget(
+      VaultApp(preferences: _MemoryPreferences(<String, String>{})),
+    );
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byKey(const ValueKey('home-nav-settings')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('中文'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-nav-all')));
     await tester.pumpAndSettle();
 
     expect(find.text('密码生成器'), findsOneWidget);
@@ -56,9 +75,12 @@ void main() {
   testWidgets('offers parallel system appearance and language choices', (
     tester,
   ) async {
-    await tester.pumpWidget(const VaultApp());
+    await tester.pumpWidget(
+      VaultApp(preferences: _MemoryPreferences(<String, String>{})),
+    );
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byKey(const ValueKey('home-nav-settings')));
     await tester.pumpAndSettle();
 
     expect(find.text('System'), findsNWidgets(2));
@@ -76,7 +98,9 @@ void main() {
     tester.platformDispatcher.localesTestValue = const [Locale('zh', 'CN')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
 
-    await tester.pumpWidget(const VaultApp());
+    await tester.pumpWidget(
+      VaultApp(preferences: _MemoryPreferences(<String, String>{})),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('密码生成器'), findsOneWidget);
@@ -86,6 +110,9 @@ void main() {
   testWidgets('encodes text with the Basexx tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('Basexx'), 200.0);
+    await tester.ensureVisible(find.text('Basexx'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Basexx'));
     await tester.pumpAndSettle();
 
@@ -99,6 +126,7 @@ void main() {
   testWidgets('opens the 2048 tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('2048'), 200.0);
     await tester.tap(find.text('2048'));
     await tester.pumpAndSettle();
 
@@ -110,6 +138,7 @@ void main() {
   testWidgets('renders a full 2048 grid', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('2048'), 200.0);
     await tester.tap(find.text('2048'));
     await tester.pumpAndSettle();
 
@@ -125,6 +154,7 @@ void main() {
   testWidgets('switches the 2048 board size', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('2048'), 200.0);
     await tester.tap(find.text('2048'));
     await tester.pumpAndSettle();
 
@@ -139,6 +169,7 @@ void main() {
   testWidgets('auto plays the 2048 tool', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
+    await tester.scrollUntilVisible(find.text('2048'), 200.0);
     await tester.tap(find.text('2048'));
     await tester.pumpAndSettle();
 
@@ -204,6 +235,8 @@ void main() {
     await tester.pumpWidget(const VaultApp());
 
     await tester.scrollUntilVisible(find.text('Flashlight'), 200.0);
+    await tester.ensureVisible(find.text('Flashlight'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Flashlight'));
     await tester.pumpAndSettle();
 
@@ -220,6 +253,8 @@ void main() {
     await tester.pumpWidget(const VaultApp());
 
     await tester.scrollUntilVisible(find.text('Flashlight'), 200.0);
+    await tester.ensureVisible(find.text('Flashlight'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Flashlight'));
     await tester.pumpAndSettle();
 

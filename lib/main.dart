@@ -101,15 +101,101 @@ class LocalPreferences {
   }
 }
 
+enum HomeView {
+  recent,
+  favorites,
+  all,
+  settings;
+
+  static const core = <HomeView>[
+    HomeView.recent,
+    HomeView.favorites,
+    HomeView.all,
+  ];
+}
+
+extension HomeViewDetails on HomeView {
+  String get englishName => switch (this) {
+    HomeView.recent => 'Recent',
+    HomeView.favorites => 'Favorites',
+    HomeView.all => 'All',
+    HomeView.settings => 'Settings',
+  };
+
+  String get chineseName => switch (this) {
+    HomeView.recent => '最近',
+    HomeView.favorites => '收藏',
+    HomeView.all => '全部',
+    HomeView.settings => '设置',
+  };
+
+  String get englishSubtitle => switch (this) {
+    HomeView.recent => 'Recently opened tools',
+    HomeView.favorites => 'Tools you starred',
+    HomeView.all => 'Every tool in Pockito',
+    HomeView.settings => 'Appearance, language and home tabs',
+  };
+
+  String get chineseSubtitle => switch (this) {
+    HomeView.recent => '最近打开的工具',
+    HomeView.favorites => '已收藏的工具',
+    HomeView.all => '应用中的全部工具',
+    HomeView.settings => '外观、语言与首页界面',
+  };
+
+  IconData get icon => switch (this) {
+    HomeView.recent => Icons.history,
+    HomeView.favorites => Icons.star_border,
+    HomeView.all => Icons.grid_view_outlined,
+    HomeView.settings => Icons.tune,
+  };
+
+  IconData get selectedIcon => switch (this) {
+    HomeView.recent => Icons.history,
+    HomeView.favorites => Icons.star,
+    HomeView.all => Icons.grid_view_rounded,
+    HomeView.settings => Icons.tune,
+  };
+}
+
 class AppSettings extends ChangeNotifier {
   AppSettings({LocalPreferences? preferences})
     : _preferences = preferences ?? LocalPreferences();
+
+  static const int maxRecentTools = 20;
   final LocalPreferences _preferences;
   ThemeMode themeMode = ThemeMode.system;
   LocaleMode localeMode = LocaleMode.system;
+  List<String> recentToolIds = [];
+  Set<String> favoriteToolIds = {};
+  Set<HomeView> hiddenHomeViews = {};
+  HomeView homeTab = HomeView.all;
 
   static AppSettings of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_SettingsScope>()!.settings;
+
+  List<HomeView> get visibleHomeViews {
+    final views = <HomeView>[
+      for (final view in HomeView.values)
+        if (!hiddenHomeViews.contains(view)) view,
+    ];
+    return views.isEmpty ? const [HomeView.all] : views;
+  }
+
+  bool isHomeViewVisible(HomeView view) => !hiddenHomeViews.contains(view);
+
+  HomeView get fallbackHomeView {
+    for (final view in HomeView.core) {
+      if (isHomeViewVisible(view)) return view;
+    }
+    return HomeView.all;
+  }
+
+  bool canHideHomeView(HomeView view) {
+    if (view == HomeView.settings) return true;
+    if (hiddenHomeViews.contains(view)) return true;
+    return HomeView.core.where(isHomeViewVisible).length > 1;
+  }
 
   Future<void> load() async {
     try {
@@ -129,10 +215,127 @@ class AppSettings extends ChangeNotifier {
           _ => LocaleMode.system,
         };
       }
-      notifyListeners();
     } catch (_) {
       // Keep defaults when local storage is unavailable.
     }
+    try {
+      final raw = await _preferences.getString('home_state');
+      if (raw != null) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final map = Map<String, dynamic>.from(decoded);
+          final recent = map['recent'];
+          if (recent is List) {
+            final seen = <String>{};
+            for (final value in recent) {
+              if (value is String &&
+                  toolInfoById(value) != null &&
+                  seen.add(value)) {
+                recentToolIds.add(value);
+                if (recentToolIds.length >= maxRecentTools) break;
+              }
+            }
+          }
+          final favorites = map['favorites'];
+          if (favorites is List) {
+            for (final value in favorites) {
+              if (value is String && toolInfoById(value) != null) {
+                favoriteToolIds.add(value);
+              }
+            }
+          }
+          final hidden = map['hidden'];
+          if (hidden is List) {
+            for (final value in hidden) {
+              final view = _homeViewFromName(value);
+              if (view != null) hiddenHomeViews.add(view);
+            }
+          }
+          final tab = _homeViewFromName(map['tab']);
+          if (tab != null) homeTab = tab;
+        }
+      }
+    } catch (_) {
+      // Keep the defaults when the stored home state cannot be read.
+    }
+    if (HomeView.core.every(hiddenHomeViews.contains)) {
+      hiddenHomeViews.remove(HomeView.all);
+    }
+    if (!isHomeViewVisible(homeTab)) homeTab = fallbackHomeView;
+    notifyListeners();
+  }
+
+  static HomeView? _homeViewFromName(dynamic value) {
+    if (value is! String) return null;
+    for (final view in HomeView.values) {
+      if (view.name == value) return view;
+    }
+    return null;
+  }
+
+  Future<void> _saveHomeState() async {
+    try {
+      await _preferences.setString(
+        'home_state',
+        jsonEncode({
+          'recent': recentToolIds,
+          'favorites': favoriteToolIds.toList(),
+          'hidden': [for (final view in hiddenHomeViews) view.name],
+          'tab': homeTab.name,
+        }),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> markToolOpened(String id) async {
+    if (toolInfoById(id) == null) return;
+    recentToolIds.remove(id);
+    recentToolIds.insert(0, id);
+    if (recentToolIds.length > maxRecentTools) {
+      recentToolIds = recentToolIds.sublist(0, maxRecentTools);
+    }
+    notifyListeners();
+    await _saveHomeState();
+  }
+
+  Future<void> toggleFavorite(String id) async {
+    if (toolInfoById(id) == null) return;
+    if (!favoriteToolIds.add(id)) favoriteToolIds.remove(id);
+    notifyListeners();
+    await _saveHomeState();
+  }
+
+  Future<void> setHomeTab(HomeView view) async {
+    if (!isHomeViewVisible(view) || homeTab == view) return;
+    homeTab = view;
+    notifyListeners();
+    await _saveHomeState();
+  }
+
+  Future<void> setHomeViewVisible(HomeView view, bool visible) async {
+    if (visible) {
+      if (!hiddenHomeViews.remove(view)) return;
+    } else {
+      if (!canHideHomeView(view)) return;
+      if (!hiddenHomeViews.add(view)) return;
+    }
+    if (!isHomeViewVisible(homeTab)) homeTab = fallbackHomeView;
+    notifyListeners();
+    await _saveHomeState();
+  }
+
+  Future<void> clearRecent() async {
+    if (recentToolIds.isEmpty) return;
+    recentToolIds.clear();
+    notifyListeners();
+    await _saveHomeState();
+  }
+
+  Future<void> clearFavorites() async {
+    if (favoriteToolIds.isEmpty) return;
+    favoriteToolIds.clear();
+    notifyListeners();
+    await _saveHomeState();
   }
 
   Future<void> setTheme(ThemeMode mode) async {
@@ -169,21 +372,23 @@ class _SettingsScope extends InheritedNotifier<AppSettings> {
 }
 
 class VaultApp extends StatefulWidget {
-  const VaultApp({super.key, this.home = const HomeScreen()});
+  const VaultApp({super.key, this.home = const HomeScreen(), this.preferences});
 
   final Widget home;
+  final LocalPreferences? preferences;
 
   @override
   State<VaultApp> createState() => _VaultAppState();
 }
 
 class _VaultAppState extends State<VaultApp> {
-  final _settings = AppSettings();
+  late final AppSettings _settings;
 
   @override
   void initState() {
     super.initState();
-    _settings.load();
+    _settings = AppSettings(preferences: widget.preferences);
+    unawaited(_settings.load());
   }
 
   @override
@@ -231,70 +436,23 @@ class _VaultAppState extends State<VaultApp> {
 
 Future<void> showSettings(BuildContext context) => showModalBottomSheet<void>(
   context: context,
-  builder: (context) {
-    final settings = AppSettings.of(context);
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              tr(context, 'Appearance', '外观设置'),
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<ThemeMode>(
-              segments: [
-                ButtonSegment(
-                  value: ThemeMode.system,
-                  icon: const Icon(Icons.brightness_auto_outlined),
-                  label: Text(tr(context, 'System', '系统')),
-                ),
-                ButtonSegment(
-                  value: ThemeMode.light,
-                  icon: const Icon(Icons.light_mode_outlined),
-                  label: Text(tr(context, 'Light', '浅色')),
-                ),
-                ButtonSegment(
-                  value: ThemeMode.dark,
-                  icon: const Icon(Icons.dark_mode_outlined),
-                  label: Text(tr(context, 'Dark', '深色')),
-                ),
-              ],
-              selected: {settings.themeMode},
-              onSelectionChanged: (selection) =>
-                  settings.setTheme(selection.first),
-            ),
-            const SizedBox(height: 4),
-            SegmentedButton<LocaleMode>(
-              segments: [
-                ButtonSegment(
-                  value: LocaleMode.system,
-                  icon: const Icon(Icons.language_outlined),
-                  label: Text(tr(context, 'System', '系统')),
-                ),
-                ButtonSegment(
-                  value: LocaleMode.english,
-                  icon: const Icon(Icons.translate),
-                  label: const Text('English'),
-                ),
-                ButtonSegment(
-                  value: LocaleMode.chinese,
-                  icon: const Icon(Icons.translate),
-                  label: const Text('中文'),
-                ),
-              ],
-              selected: {settings.localeMode},
-              onSelectionChanged: (selection) =>
-                  settings.setLocaleMode(selection.first),
-            ),
-          ],
-        ),
+  builder: (context) => SafeArea(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            tr(context, 'Appearance', '外观设置'),
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 12),
+          const _AppearanceControls(),
+        ],
       ),
-    );
-  },
+    ),
+  ),
 );
 
 class ToolCredit {
@@ -701,77 +859,572 @@ class HomeScreen extends StatelessWidget {
     _ => null,
   };
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: GestureDetector(
-        onLongPress: () => openVault(context),
-        child: Text(tr(context, 'Pockito', '妙物袋')),
-      ),
-      actions: [
-        IconButton(
-          tooltip: tr(context, 'Appearance and language', '外观和语言'),
-          onPressed: () => showSettings(context),
-          icon: const Icon(Icons.tune),
+  void _openSettings(BuildContext context) {
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+  }
+
+  void _openTool(BuildContext context, AppSettings settings, ToolInfo tool) {
+    final screen = _screenFor(tool.id);
+    if (screen == null) return;
+    unawaited(settings.markToolOpened(tool.id));
+    _open(context, screen);
+  }
+
+  Widget _toolTile(BuildContext context, AppSettings settings, ToolInfo tool) {
+    final favorite = settings.favoriteToolIds.contains(tool.id);
+    return _ToolTile(
+      key: ValueKey('tool-tile-${tool.id}'),
+      toolId: tool.id,
+      icon: tool.icon,
+      title: tr(context, tool.englishTitle, tool.chineseTitle),
+      subtitle: tr(context, tool.englishSubtitle, tool.chineseSubtitle),
+      favorite: favorite,
+      onToggleFavorite: () => unawaited(settings.toggleFavorite(tool.id)),
+      onTap: () => _openTool(context, settings, tool),
+    );
+  }
+
+  Widget _allView(BuildContext context, AppSettings settings) => ListView(
+    key: const PageStorageKey('home-all'),
+    padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+    children: [
+      _HomeSectionHeader(
+        title: tr(context, 'All tools', '全部工具'),
+        subtitle: tr(
+          context,
+          toolInfos.length == 1 ? '1 tool' : '${toolInfos.length} tools',
+          '${toolInfos.length} 个工具',
         ),
+      ),
+      const SizedBox(height: 16),
+      for (var index = 0; index < toolInfos.length; index++) ...[
+        _toolTile(context, settings, toolInfos[index]),
+        if (index < toolInfos.length - 1) const SizedBox(height: 12),
       ],
-    ),
-    body: Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720),
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
-          children: [
-            for (final tool in toolInfos) ...[
-              _ToolTile(
-                icon: tool.icon,
-                title: tr(context, tool.englishTitle, tool.chineseTitle),
-                subtitle: tr(
+    ],
+  );
+
+  Widget _recentView(BuildContext context, AppSettings settings) {
+    final tools = [for (final id in settings.recentToolIds) ?toolInfoById(id)];
+    return ListView(
+      key: const PageStorageKey('home-recent'),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+      children: [
+        _HomeSectionHeader(
+          title: tr(context, 'Recent', '最近'),
+          subtitle: tools.isEmpty
+              ? tr(context, 'No recent tools yet', '还没有最近记录')
+              : tr(
                   context,
-                  tool.englishSubtitle,
-                  tool.chineseSubtitle,
+                  tools.length == 1 ? '1 tool' : '${tools.length} tools',
+                  '${tools.length} 个工具',
                 ),
-                onTap: () {
-                  final screen = _screenFor(tool.id);
-                  if (screen != null) _open(context, screen);
-                },
-              ),
-              if (tool != toolInfos.last) const SizedBox(height: 12),
-            ],
+          action: tools.isEmpty
+              ? null
+              : IconButton(
+                  key: const ValueKey('home-clear-recent'),
+                  tooltip: tr(context, 'Clear recent', '清空最近'),
+                  onPressed: () => unawaited(settings.clearRecent()),
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                ),
+        ),
+        const SizedBox(height: 16),
+        if (tools.isEmpty)
+          _HomeEmptyState(
+            key: const ValueKey('home-recent-empty'),
+            icon: Icons.history,
+            title: tr(context, 'No recent tools', '还没有最近记录'),
+            subtitle: tr(
+              context,
+              'Open a tool and it will appear here.',
+              '打开一个工具后会显示在这里。',
+            ),
+            onBrowse: settings.isHomeViewVisible(HomeView.all)
+                ? () => unawaited(settings.setHomeTab(HomeView.all))
+                : null,
+          )
+        else
+          for (var index = 0; index < tools.length; index++) ...[
+            _toolTile(context, settings, tools[index]),
+            if (index < tools.length - 1) const SizedBox(height: 12),
           ],
+      ],
+    );
+  }
+
+  Widget _favoritesView(BuildContext context, AppSettings settings) {
+    final tools = [
+      for (final tool in toolInfos)
+        if (settings.favoriteToolIds.contains(tool.id)) tool,
+    ];
+    return ListView(
+      key: const PageStorageKey('home-favorites'),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+      children: [
+        _HomeSectionHeader(
+          title: tr(context, 'Favorites', '收藏'),
+          subtitle: tools.isEmpty
+              ? tr(context, 'No favorites yet', '还没有收藏')
+              : tr(
+                  context,
+                  tools.length == 1 ? '1 tool' : '${tools.length} tools',
+                  '${tools.length} 个工具',
+                ),
+        ),
+        const SizedBox(height: 16),
+        if (tools.isEmpty)
+          _HomeEmptyState(
+            key: const ValueKey('home-favorites-empty'),
+            icon: Icons.star_border,
+            title: tr(context, 'No favorites yet', '还没有收藏'),
+            subtitle: tr(
+              context,
+              'Tap the star on a tool in All to save it here.',
+              '在「全部」中点击工具旁的星标即可收藏。',
+            ),
+            onBrowse: settings.isHomeViewVisible(HomeView.all)
+                ? () => unawaited(settings.setHomeTab(HomeView.all))
+                : null,
+          )
+        else
+          for (var index = 0; index < tools.length; index++) ...[
+            _toolTile(context, settings, tools[index]),
+            if (index < tools.length - 1) const SizedBox(height: 12),
+          ],
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettings.of(context);
+    final visibleViews = settings.visibleHomeViews;
+    final currentView = visibleViews.contains(settings.homeTab)
+        ? settings.homeTab
+        : visibleViews.first;
+    return Scaffold(
+      appBar: AppBar(
+        title: GestureDetector(
+          onLongPress: () => openVault(context),
+          child: Text(tr(context, 'Pockito', '妙物袋')),
+        ),
+        actions: [
+          if (!settings.isHomeViewVisible(HomeView.settings))
+            IconButton(
+              key: const ValueKey('home-settings-fallback'),
+              tooltip: tr(context, 'Settings', '设置'),
+              onPressed: () => _openSettings(context),
+              icon: const Icon(Icons.tune),
+            ),
+        ],
+      ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: switch (currentView) {
+            HomeView.recent => _recentView(context, settings),
+            HomeView.favorites => _favoritesView(context, settings),
+            HomeView.all => _allView(context, settings),
+            HomeView.settings => const SettingsView(),
+          },
         ),
       ),
-    ),
-  );
+      bottomNavigationBar: visibleViews.length > 1
+          ? NavigationBar(
+              selectedIndex: visibleViews.indexOf(currentView),
+              onDestinationSelected: (index) {
+                unawaited(settings.setHomeTab(visibleViews[index]));
+              },
+              destinations: [
+                for (final view in visibleViews)
+                  NavigationDestination(
+                    key: ValueKey('home-nav-${view.name}'),
+                    icon: Icon(view.icon),
+                    selectedIcon: Icon(view.selectedIcon),
+                    label: tr(context, view.englishName, view.chineseName),
+                  ),
+              ],
+            )
+          : null,
+    );
+  }
 }
 
 class _ToolTile extends StatelessWidget {
   const _ToolTile({
+    super.key,
+    required this.toolId,
     required this.icon,
     required this.title,
     required this.subtitle,
+    required this.favorite,
+    required this.onToggleFavorite,
     required this.onTap,
+  });
+
+  final String toolId;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool favorite;
+  final VoidCallback onToggleFavorite;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 10,
+        ),
+        leading: CircleAvatar(
+          backgroundColor: scheme.primaryContainer,
+          foregroundColor: scheme.onPrimaryContainer,
+          child: Icon(icon),
+        ),
+        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
+        subtitle: Text(subtitle),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              key: ValueKey('tool-favorite-$toolId'),
+              tooltip: favorite
+                  ? tr(context, 'Remove from favorites', '取消收藏')
+                  : tr(context, 'Add to favorites', '收藏'),
+              onPressed: onToggleFavorite,
+              icon: Icon(
+                favorite ? Icons.star : Icons.star_border,
+                color: favorite ? Colors.amber : null,
+              ),
+            ),
+            const Icon(Icons.chevron_right),
+          ],
+        ),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _HomeSectionHeader extends StatelessWidget {
+  const _HomeSectionHeader({
+    required this.title,
+    required this.subtitle,
+    this.action,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        ?action,
+      ],
+    );
+  }
+}
+
+class _HomeEmptyState extends StatelessWidget {
+  const _HomeEmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.onBrowse,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
-  final VoidCallback onTap;
+  final VoidCallback? onBrowse;
 
   @override
-  Widget build(BuildContext context) => Card(
-    clipBehavior: Clip.antiAlias,
-    child: ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-      leading: CircleAvatar(
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-        foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-        child: Icon(icon),
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 32, 24, 28),
+        child: Column(
+          children: [
+            Icon(icon, size: 42, color: theme.colorScheme.primary),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              style: theme.textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (onBrowse != null) ...[
+              const SizedBox(height: 18),
+              FilledButton.tonalIcon(
+                onPressed: onBrowse,
+                icon: const Icon(Icons.grid_view_outlined),
+                label: Text(tr(context, 'Browse all tools', '浏览全部工具')),
+              ),
+            ],
+          ],
+        ),
       ),
-      title: Text(title, style: Theme.of(context).textTheme.titleMedium),
-      subtitle: Text(subtitle),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: onTap,
+    );
+  }
+}
+
+class _AppearanceControls extends StatelessWidget {
+  const _AppearanceControls({this.showLabels = false});
+
+  final bool showLabels;
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettings.of(context);
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (showLabels) ...[
+          Text(tr(context, 'Theme', '主题'), style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 8),
+        ],
+        SegmentedButton<ThemeMode>(
+          segments: [
+            ButtonSegment(
+              value: ThemeMode.system,
+              icon: const Icon(Icons.brightness_auto_outlined),
+              label: Text(tr(context, 'System', '系统')),
+            ),
+            ButtonSegment(
+              value: ThemeMode.light,
+              icon: const Icon(Icons.light_mode_outlined),
+              label: Text(tr(context, 'Light', '浅色')),
+            ),
+            ButtonSegment(
+              value: ThemeMode.dark,
+              icon: const Icon(Icons.dark_mode_outlined),
+              label: Text(tr(context, 'Dark', '深色')),
+            ),
+          ],
+          selected: {settings.themeMode},
+          onSelectionChanged: (selection) {
+            unawaited(settings.setTheme(selection.first));
+          },
+        ),
+        SizedBox(height: showLabels ? 16 : 12),
+        if (showLabels) ...[
+          Text(
+            tr(context, 'Language', '语言'),
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+        ],
+        SegmentedButton<LocaleMode>(
+          segments: [
+            ButtonSegment(
+              value: LocaleMode.system,
+              icon: const Icon(Icons.language_outlined),
+              label: Text(tr(context, 'System', '系统')),
+            ),
+            ButtonSegment(
+              value: LocaleMode.english,
+              icon: const Icon(Icons.translate),
+              label: const Text('English'),
+            ),
+            ButtonSegment(
+              value: LocaleMode.chinese,
+              icon: const Icon(Icons.translate),
+              label: const Text('中文'),
+            ),
+          ],
+          selected: {settings.localeMode},
+          onSelectionChanged: (selection) {
+            unawaited(settings.setLocaleMode(selection.first));
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class SettingsView extends StatelessWidget {
+  const SettingsView({super.key, this.showHeader = true});
+
+  final bool showHeader;
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettings.of(context);
+    final theme = Theme.of(context);
+    return ListView(
+      key: const PageStorageKey('home-settings'),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+      children: [
+        if (showHeader) ...[
+          Text(
+            tr(context, 'Settings', '设置'),
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            tr(context, 'Appearance, language and home tabs.', '外观、语言与首页界面。'),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 22),
+        ],
+        Text(
+          tr(context, 'Appearance', '外观'),
+          style: theme.textTheme.titleMedium,
+        ),
+        const SizedBox(height: 12),
+        const _AppearanceControls(showLabels: true),
+        const SizedBox(height: 22),
+        const Divider(height: 1),
+        const SizedBox(height: 18),
+        Text(
+          tr(context, 'Home tabs', '首页界面'),
+          style: theme.textTheme.titleMedium,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          tr(
+            context,
+            'Choose which views appear in the home navigation.',
+            '选择首页导航中显示的界面。',
+          ),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 4),
+        for (final view in HomeView.values) _HomeViewSwitch(view: view),
+        const SizedBox(height: 6),
+        Text(
+          tr(
+            context,
+            'At least one of Recent, Favorites and All must stay visible.',
+            '最近、收藏、全部至少保留一个。',
+          ),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 20),
+        const Divider(height: 1),
+        const SizedBox(height: 18),
+        Text(
+          tr(context, 'Recent and favorites', '最近与收藏'),
+          style: theme.textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            TextButton.icon(
+              key: const ValueKey('settings-clear-recent'),
+              onPressed: settings.recentToolIds.isEmpty
+                  ? null
+                  : () => unawaited(settings.clearRecent()),
+              icon: const Icon(Icons.delete_sweep_outlined),
+              label: Text(tr(context, 'Clear recent', '清空最近')),
+            ),
+            TextButton.icon(
+              key: const ValueKey('settings-clear-favorites'),
+              onPressed: settings.favoriteToolIds.isEmpty
+                  ? null
+                  : () => unawaited(settings.clearFavorites()),
+              icon: const Icon(Icons.star_border),
+              label: Text(tr(context, 'Clear favorites', '清空收藏')),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _HomeViewSwitch extends StatelessWidget {
+  const _HomeViewSwitch({required this.view});
+
+  final HomeView view;
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettings.of(context);
+    final visible = settings.isHomeViewVisible(view);
+    final canToggle = !visible || settings.canHideHomeView(view);
+    return SwitchListTile(
+      key: ValueKey('home-show-${view.name}'),
+      contentPadding: EdgeInsets.zero,
+      secondary: Icon(view.icon),
+      title: Text(tr(context, view.englishName, view.chineseName)),
+      subtitle: Text(
+        canToggle
+            ? tr(context, view.englishSubtitle, view.chineseSubtitle)
+            : tr(
+                context,
+                'At least one tool view must stay visible.',
+                '至少保留一个工具界面。',
+              ),
+      ),
+      value: visible,
+      onChanged: canToggle
+          ? (value) => unawaited(settings.setHomeViewVisible(view, value))
+          : null,
+    );
+  }
+}
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(tr(context, 'Settings', '设置'))),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 720),
+        child: const SettingsView(showHeader: false),
+      ),
     ),
   );
 }

@@ -98,6 +98,8 @@ void main() {
     testWidgets('${tool.id} hides the info action', (tester) async {
       await tester.pumpWidget(const VaultApp());
       await tester.scrollUntilVisible(find.text(tool.englishTitle), 200.0);
+      await tester.ensureVisible(find.text(tool.englishTitle));
+      await tester.pumpAndSettle();
       await tester.tap(find.text(tool.englishTitle));
       await tester.pumpAndSettle();
 
@@ -114,6 +116,8 @@ void main() {
       await tester.pumpWidget(const VaultApp());
 
       await tester.scrollUntilVisible(find.text(tool.englishTitle), 200.0);
+      await tester.ensureVisible(find.text(tool.englishTitle));
+      await tester.pumpAndSettle();
       await tester.tap(find.text(tool.englishTitle));
       await tester.pumpAndSettle();
 
