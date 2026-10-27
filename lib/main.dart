@@ -204,6 +204,7 @@ class AppSettings extends ChangeNotifier {
   Set<String> favoriteToolIds = {};
   Set<HomeView> hiddenHomeViews = {};
   HomeView homeTab = HomeView.all;
+  bool rememberHomeTab = true;
 
   static AppSettings of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_SettingsScope>()!.settings;
@@ -298,6 +299,9 @@ class AppSettings extends ChangeNotifier {
           }
           final tab = _homeViewFromName(map['tab']);
           if (tab != null) homeTab = tab;
+          if (map['remember'] case final bool remember) {
+            rememberHomeTab = remember;
+          }
         }
       }
     } catch (_) {
@@ -306,6 +310,7 @@ class AppSettings extends ChangeNotifier {
     if (HomeView.core.every(hiddenHomeViews.contains)) {
       hiddenHomeViews.remove(HomeView.all);
     }
+    if (!rememberHomeTab) homeTab = HomeView.all;
     if (!isHomeViewVisible(homeTab)) homeTab = fallbackHomeView;
     notifyListeners();
   }
@@ -327,6 +332,7 @@ class AppSettings extends ChangeNotifier {
           'favorites': favoriteToolIds.toList(),
           'hidden': [for (final view in hiddenHomeViews) view.name],
           'tab': homeTab.name,
+          'remember': rememberHomeTab,
         }),
       );
     } catch (_) {}
@@ -353,6 +359,13 @@ class AppSettings extends ChangeNotifier {
   Future<void> setHomeTab(HomeView view) async {
     if (!isHomeViewVisible(view) || homeTab == view) return;
     homeTab = view;
+    notifyListeners();
+    await _saveHomeState();
+  }
+
+  Future<void> setRememberHomeTab(bool value) async {
+    if (rememberHomeTab == value) return;
+    rememberHomeTab = value;
     notifyListeners();
     await _saveHomeState();
   }
@@ -1091,14 +1104,35 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, constraints) {
         final columns = wide ? (constraints.maxWidth >= 1040 ? 3 : 2) : 1;
         const gap = 12.0;
-        final width = (constraints.maxWidth - (columns - 1) * gap) / columns;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [
-            for (final tool in tools)
-              SizedBox(width: width, child: _toolTile(context, settings, tool)),
-          ],
+        final rows = <Widget>[];
+        for (var start = 0; start < tools.length; start += columns) {
+          final end = start + columns > tools.length
+              ? tools.length
+              : start + columns;
+          final rowTools = tools.sublist(start, end);
+          rows.add(
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var index = 0; index < columns; index++) ...[
+                    if (index < rowTools.length)
+                      Expanded(
+                        child: _toolTile(context, settings, rowTools[index]),
+                      )
+                    else
+                      const Spacer(),
+                    if (index < columns - 1) const SizedBox(width: gap),
+                  ],
+                ],
+              ),
+            ),
+          );
+          if (end < tools.length) rows.add(const SizedBox(height: gap));
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: rows,
         );
       },
     );
@@ -1190,7 +1224,7 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 20, wide ? 32 : 20, 36),
       children: [
         _HomeSectionHeader(
-          title: tr(context, 'All tools', '全部工具'),
+          title: tr(context, 'Pockito', '妙物袋'),
           onTitleLongPress: () => openVault(context),
           subtitle: _toolCount(context, tools.length, searching: searching),
           action: _searchBar(context, HomeView.all),
@@ -1449,38 +1483,67 @@ class _ToolTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 18,
-          vertical: 10,
-        ),
-        leading: CircleAvatar(
-          backgroundColor: scheme.primaryContainer,
-          foregroundColor: scheme.onPrimaryContainer,
-          child: Icon(icon),
-        ),
-        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
-        subtitle: Text(subtitle),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              key: ValueKey('tool-favorite-$toolId'),
-              tooltip: favorite
-                  ? tr(context, 'Remove from favorites', '取消收藏')
-                  : tr(context, 'Add to favorites', '收藏'),
-              onPressed: onToggleFavorite,
-              icon: Icon(
-                favorite ? Icons.star : Icons.star_border,
-                color: favorite ? Colors.amber : null,
+    return Container(
+      key: ValueKey('tool-card-$toolId'),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: scheme.shadow.withValues(alpha: 0.12),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Material(
+          color: Colors.transparent,
+          child: Center(
+            child: SizedBox(
+              width: double.infinity,
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 10,
+                ),
+                leading: CircleAvatar(
+                  backgroundColor: scheme.primaryContainer,
+                  foregroundColor: scheme.onPrimaryContainer,
+                  child: Icon(icon),
+                ),
+                title: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                subtitle: Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      key: ValueKey('tool-favorite-$toolId'),
+                      tooltip: favorite
+                          ? tr(context, 'Remove from favorites', '取消收藏')
+                          : tr(context, 'Add to favorites', '收藏'),
+                      onPressed: onToggleFavorite,
+                      icon: Icon(
+                        favorite ? Icons.star : Icons.star_border,
+                        color: favorite ? Colors.amber : null,
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right),
+                  ],
+                ),
+                onTap: onTap,
               ),
             ),
-            const Icon(Icons.chevron_right),
-          ],
+          ),
         ),
-        onTap: onTap,
       ),
     );
   }
@@ -1875,6 +1938,23 @@ class SettingsView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
+        SwitchListTile(
+          key: const ValueKey('home-remember-tab'),
+          contentPadding: EdgeInsets.zero,
+          secondary: const Icon(Icons.restore),
+          title: Text(tr(context, 'Remember last view', '记住上次界面')),
+          subtitle: Text(
+            tr(
+              context,
+              'Open the app on the last view you used.',
+              '下次打开时回到上次使用的界面。',
+            ),
+          ),
+          value: settings.rememberHomeTab,
+          onChanged: (value) {
+            unawaited(settings.setRememberHomeTab(value));
+          },
+        ),
         for (final view in HomeView.values) _HomeViewSwitch(view: view),
         const SizedBox(height: 6),
         Text(

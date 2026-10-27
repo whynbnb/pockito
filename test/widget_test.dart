@@ -28,7 +28,7 @@ void main() {
   testWidgets('shows the tool list', (tester) async {
     await tester.pumpWidget(const VaultApp());
 
-    expect(find.text('All tools'), findsOneWidget);
+    expect(find.text('Pockito'), findsOneWidget);
     expect(find.text('Password Generator'), findsOneWidget);
     expect(find.text('+1 Counter'), findsOneWidget);
   });

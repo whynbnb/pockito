@@ -18,11 +18,15 @@ class _MemoryPreferences extends LocalPreferences {
   }
 }
 
-Widget homeApp(LocalPreferences preferences) =>
-    VaultApp(preferences: preferences);
+Widget homeApp(LocalPreferences preferences, {Key? key}) =>
+    VaultApp(key: key, preferences: preferences);
 
-Future<void> pumpHome(WidgetTester tester, LocalPreferences preferences) async {
-  await tester.pumpWidget(homeApp(preferences));
+Future<void> pumpHome(
+  WidgetTester tester,
+  LocalPreferences preferences, {
+  Key? key,
+}) async {
+  await tester.pumpWidget(homeApp(preferences, key: key));
   await tester.pumpAndSettle();
 }
 
@@ -36,7 +40,7 @@ void main() {
     await pumpHome(tester, _MemoryPreferences(<String, String>{}));
 
     expect(find.byKey(const PageStorageKey('home-all')), findsOneWidget);
-    expect(find.text('All tools'), findsOneWidget);
+    expect(find.text('Pockito'), findsOneWidget);
     expect(find.byType(AppBar), findsNothing);
     expect(find.byKey(const ValueKey('home-nav-recent')), findsOneWidget);
     expect(find.byKey(const ValueKey('home-nav-favorites')), findsOneWidget);
@@ -55,7 +59,11 @@ void main() {
     await tapNav(tester, HomeView.favorites);
     expect(find.byKey(const ValueKey('home-favorites-empty')), findsOneWidget);
 
-    await pumpHome(tester, _MemoryPreferences(store));
+    await pumpHome(
+      tester,
+      _MemoryPreferences(store),
+      key: const ValueKey('reloaded'),
+    );
     expect(find.byKey(const ValueKey('home-favorites-empty')), findsOneWidget);
     expect(find.byKey(const PageStorageKey('home-all')), findsNothing);
   });
@@ -76,7 +84,11 @@ void main() {
     );
     expect(find.byKey(const ValueKey('home-favorites-empty')), findsNothing);
 
-    await pumpHome(tester, _MemoryPreferences(store));
+    await pumpHome(
+      tester,
+      _MemoryPreferences(store),
+      key: const ValueKey('reloaded'),
+    );
     expect(
       find.byKey(const ValueKey('tool-tile-password-generator')),
       findsOneWidget,
@@ -108,7 +120,11 @@ void main() {
       findsOneWidget,
     );
 
-    await pumpHome(tester, _MemoryPreferences(store));
+    await pumpHome(
+      tester,
+      _MemoryPreferences(store),
+      key: const ValueKey('reloaded'),
+    );
     await tapNav(tester, HomeView.recent);
     expect(
       find.byKey(const ValueKey('tool-tile-password-generator')),
@@ -242,7 +258,7 @@ void main() {
     final after = tester.getSize(search).width;
     expect(after, greaterThan(before));
     expect(after, lessThan(260));
-    final titleRect = tester.getRect(find.text('All tools'));
+    final titleRect = tester.getRect(find.text('Pockito'));
     final fieldRect = tester.getRect(search);
     expect(titleRect.right, lessThanOrEqualTo(fieldRect.left));
   });
@@ -313,9 +329,31 @@ void main() {
     expect(firstTop.dx, lessThan(secondTop.dx));
     expect(thirdTop.dy, greaterThan(firstTop.dy));
     expect(tester.getSize(first).width, greaterThan(300));
+    expect(tester.getSize(first).height, tester.getSize(second).height);
+
+    final gameCounter = find.byKey(const ValueKey('tool-card-game-counter'));
+    final basexx = find.byKey(const ValueKey('tool-card-basexx'));
+    expect(tester.getSize(gameCounter).height, tester.getSize(basexx).height);
+    final firstCard = find.byKey(
+      const ValueKey('tool-card-password-generator'),
+    );
+    final secondCard = find.byKey(const ValueKey('tool-card-counter'));
+    expect(tester.getSize(firstCard).height, tester.getSize(secondCard).height);
 
     await tapNav(tester, HomeView.settings);
     expect(find.byType(SettingsView), findsOneWidget);
+  });
+
+  testWidgets('caps tool subtitles at two lines', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await pumpHome(tester, _MemoryPreferences(<String, String>{}));
+    final subtitle = toolInfoById('tone-generator')!.englishSubtitle;
+    final text = tester.widget<Text>(find.text(subtitle));
+    expect(text.maxLines, 2);
+    expect(text.overflow, TextOverflow.ellipsis);
   });
 
   testWidgets('changes the app accent from settings', (tester) async {
@@ -367,6 +405,45 @@ void main() {
 
     await reloaded.setAccentColor(themeAccentPresets.first.color);
     expect(reloaded.useDynamicColor, isFalse);
+  });
+
+  testWidgets('can disable remembering the last view', (tester) async {
+    tester.view.physicalSize = const Size(800, 1500);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final store = <String, String>{};
+    await pumpHome(tester, _MemoryPreferences(store));
+    await tapNav(tester, HomeView.settings);
+
+    final toggle = find.byKey(const ValueKey('home-remember-tab'));
+    await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+    await tapNav(tester, HomeView.favorites);
+
+    await pumpHome(
+      tester,
+      _MemoryPreferences(store),
+      key: const ValueKey('reloaded'),
+    );
+    expect(find.byKey(const PageStorageKey('home-all')), findsOneWidget);
+    expect(find.byKey(const PageStorageKey('home-favorites')), findsNothing);
+  });
+
+  test('can stop restoring the last home tab', () async {
+    final store = <String, String>{};
+    final settings = AppSettings(preferences: _MemoryPreferences(store));
+    await settings.load();
+    await settings.setHomeTab(HomeView.favorites);
+    await settings.setRememberHomeTab(false);
+
+    final reloaded = AppSettings(preferences: _MemoryPreferences(store));
+    await reloaded.load();
+    expect(reloaded.rememberHomeTab, isFalse);
+    expect(reloaded.homeTab, HomeView.all);
   });
 
   test('home state persists and keeps at least one tool view', () async {
