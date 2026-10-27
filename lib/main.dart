@@ -2148,7 +2148,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ? settings.homeTab
         : visibleViews.first;
     final showNavigation = visibleViews.length > 1;
-    final desktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
     final settingsVisible = settings.isHomeViewVisible(HomeView.settings);
     final settingsFallback = settingsVisible
         ? null
@@ -2158,59 +2157,55 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => _openSettings(context),
             icon: const Icon(Icons.tune),
           );
-    final appBar = !desktop
-        ? AppBar(
-            title: GestureDetector(
-              onLongPress: () => openVault(context),
-              child: Text(tr(context, 'Pockito', '妙物袋')),
-            ),
-            actions: [?settingsFallback],
-          )
-        : settingsVisible
+    final appBar = settingsFallback == null
         ? null
-        : AppBar(title: null, actions: [settingsFallback!]);
+        : AppBar(title: null, actions: [settingsFallback]);
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 900;
         return Scaffold(
           appBar: appBar,
-          body: wide
-              ? Row(
-                  children: [
-                    if (showNavigation) ...[
-                      _homeRail(context, settings, visibleViews, currentView),
-                      const VerticalDivider(width: 1),
-                    ],
-                    Expanded(
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: currentView == HomeView.settings
-                                ? 720
-                                : 1120,
-                          ),
-                          child: _viewFor(
-                            context,
-                            settings,
-                            currentView,
-                            wide: wide,
+          body: SafeArea(
+            top: appBar == null,
+            bottom: false,
+            child: wide
+                ? Row(
+                    children: [
+                      if (showNavigation) ...[
+                        _homeRail(context, settings, visibleViews, currentView),
+                        const VerticalDivider(width: 1),
+                      ],
+                      Expanded(
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: currentView == HomeView.settings
+                                  ? 720
+                                  : 1120,
+                            ),
+                            child: _viewFor(
+                              context,
+                              settings,
+                              currentView,
+                              wide: wide,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                )
-              : Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 720),
-                    child: _viewFor(
-                      context,
-                      settings,
-                      currentView,
-                      wide: false,
+                    ],
+                  )
+                : Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: _viewFor(
+                        context,
+                        settings,
+                        currentView,
+                        wide: false,
+                      ),
                     ),
                   ),
-                ),
+          ),
           bottomNavigationBar: !wide && showNavigation
               ? _bottomNav(context, settings, visibleViews, currentView)
               : null,
