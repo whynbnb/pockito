@@ -459,6 +459,152 @@ void main() {
     expect(reloaded.useDynamicColor, isFalse);
   });
 
+  testWidgets('minimal mode merges favorites and recent without tabs', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final store = <String, String>{
+      'home_state': jsonEncode({
+        'recent': ['tone-generator', 'clock'],
+        'favorites': ['clock', 'world-clock'],
+        'hidden': <String>[],
+        'tab': 'all',
+        'remember': true,
+        'minimal': true,
+      }),
+    };
+    await pumpHome(tester, _MemoryPreferences(store));
+
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byType(NavigationRail), findsNothing);
+    expect(find.byKey(const PageStorageKey('home-minimal')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-nav-all')), findsNothing);
+    expect(find.byKey(const ValueKey('home-nav-recent')), findsNothing);
+    expect(find.text('Pockito'), findsOneWidget);
+    expect(find.text('Favorites'), findsOneWidget);
+    expect(find.text('Recent'), findsOneWidget);
+
+    expect(find.byKey(const ValueKey('tool-tile-clock')), findsOneWidget);
+    expect(find.byKey(const ValueKey('tool-tile-world-clock')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('tool-tile-tone-generator')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('tool-tile-password-generator')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('minimal search finds tools outside favorites and recent', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final store = <String, String>{
+      'home_state': jsonEncode({
+        'recent': ['clock'],
+        'favorites': ['world-clock'],
+        'hidden': <String>[],
+        'tab': 'all',
+        'minimal': true,
+      }),
+    };
+    await pumpHome(tester, _MemoryPreferences(store));
+
+    final search = find.byKey(const ValueKey('home-search-minimal'));
+    await tester.enterText(search, 'password');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('tool-tile-password-generator')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('tool-tile-clock')), findsNothing);
+    expect(find.text('1 result'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('home-search-clear-minimal')));
+    await tester.pumpAndSettle();
+    expect(find.text('Favorites'), findsOneWidget);
+    expect(find.text('Recent'), findsOneWidget);
+  });
+
+  testWidgets('minimal mode shows an empty state without history', (
+    tester,
+  ) async {
+    final store = <String, String>{
+      'home_state': jsonEncode({
+        'recent': <String>[],
+        'favorites': <String>[],
+        'hidden': <String>[],
+        'tab': 'all',
+        'minimal': true,
+      }),
+    };
+    await pumpHome(tester, _MemoryPreferences(store));
+
+    expect(find.byKey(const ValueKey('home-minimal-empty')), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byKey(const ValueKey('home-search-minimal')), findsOneWidget);
+  });
+
+  testWidgets('toggles minimal mode from settings', (tester) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final store = <String, String>{};
+    await pumpHome(tester, _MemoryPreferences(store));
+    await tapNav(tester, HomeView.settings);
+
+    final toggle = find.byKey(const ValueKey('home-minimal-mode'));
+    await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.byKey(const PageStorageKey('home-minimal')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('home-settings-fallback')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('home-remember-tab')), findsNothing);
+
+    final decoded = jsonDecode(store['home_state']!) as Map<String, dynamic>;
+    expect(decoded['minimal'], isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('home-settings-fallback')));
+    await tester.pumpAndSettle();
+    expect(find.byType(SettingsScreen), findsOneWidget);
+
+    final screenToggle = find.byKey(const ValueKey('home-minimal-mode'));
+    await tester.ensureVisible(screenToggle);
+    await tester.tap(screenToggle);
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+  });
+
+  test('minimal mode persists and defaults off', () async {
+    final store = <String, String>{};
+    final settings = AppSettings(preferences: _MemoryPreferences(store));
+    await settings.load();
+    expect(settings.minimalMode, isFalse);
+
+    await settings.setMinimalMode(true);
+    final reloaded = AppSettings(preferences: _MemoryPreferences(store));
+    await reloaded.load();
+    expect(reloaded.minimalMode, isTrue);
+  });
+
   testWidgets('can disable remembering the last view', (tester) async {
     tester.view.physicalSize = const Size(800, 1500);
     tester.view.devicePixelRatio = 1;

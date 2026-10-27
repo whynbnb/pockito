@@ -205,6 +205,7 @@ class AppSettings extends ChangeNotifier {
   Set<HomeView> hiddenHomeViews = {};
   HomeView homeTab = HomeView.all;
   bool rememberHomeTab = true;
+  bool minimalMode = false;
 
   static AppSettings of(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_SettingsScope>()!.settings;
@@ -302,6 +303,9 @@ class AppSettings extends ChangeNotifier {
           if (map['remember'] case final bool remember) {
             rememberHomeTab = remember;
           }
+          if (map['minimal'] case final bool minimal) {
+            minimalMode = minimal;
+          }
         }
       }
     } catch (_) {
@@ -333,6 +337,7 @@ class AppSettings extends ChangeNotifier {
           'hidden': [for (final view in hiddenHomeViews) view.name],
           'tab': homeTab.name,
           'remember': rememberHomeTab,
+          'minimal': minimalMode,
         }),
       );
     } catch (_) {}
@@ -366,6 +371,13 @@ class AppSettings extends ChangeNotifier {
   Future<void> setRememberHomeTab(bool value) async {
     if (rememberHomeTab == value) return;
     rememberHomeTab = value;
+    notifyListeners();
+    await _saveHomeState();
+  }
+
+  Future<void> setMinimalMode(bool value) async {
+    if (minimalMode == value) return;
+    minimalMode = value;
     notifyListeners();
     await _saveHomeState();
   }
@@ -1693,6 +1705,8 @@ class _HomeScreenState extends State<HomeScreen> {
     for (final view in HomeView.core) view: TextEditingController(),
   };
   late final Map<HomeView, FocusNode> _searchFocusNodes;
+  final _minimalSearchController = TextEditingController();
+  late final FocusNode _minimalSearchFocusNode;
 
   @override
   void initState() {
@@ -1701,6 +1715,7 @@ class _HomeScreenState extends State<HomeScreen> {
       for (final view in HomeView.core)
         view: FocusNode()..addListener(_onSearchFocusChanged),
     };
+    _minimalSearchFocusNode = FocusNode()..addListener(_onSearchFocusChanged);
   }
 
   void _onSearchFocusChanged() {
@@ -1715,6 +1730,8 @@ class _HomeScreenState extends State<HomeScreen> {
     for (final node in _searchFocusNodes.values) {
       node.dispose();
     }
+    _minimalSearchController.dispose();
+    _minimalSearchFocusNode.dispose();
     super.dispose();
   }
 
@@ -1743,16 +1760,18 @@ class _HomeScreenState extends State<HomeScreen> {
         .push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
   }
 
-  Widget? _settingsFallback(BuildContext context, AppSettings settings) {
-    if (settings.isHomeViewVisible(HomeView.settings)) return null;
-    return IconButton(
-      key: const ValueKey('home-settings-fallback'),
-      tooltip: tr(context, 'Settings', '设置'),
-      onPressed: () => _openSettings(context),
-      visualDensity: VisualDensity.compact,
-      icon: const Icon(Icons.tune),
-    );
-  }
+  Widget _settingsButton(BuildContext context) => IconButton(
+    key: const ValueKey('home-settings-fallback'),
+    tooltip: tr(context, 'Settings', '设置'),
+    onPressed: () => _openSettings(context),
+    visualDensity: VisualDensity.compact,
+    icon: const Icon(Icons.tune),
+  );
+
+  Widget? _settingsFallback(BuildContext context, AppSettings settings) =>
+      settings.isHomeViewVisible(HomeView.settings)
+      ? null
+      : _settingsButton(context);
 
   void _openTool(BuildContext context, AppSettings settings, ToolInfo tool) {
     final screen = _screenFor(tool.id);
@@ -1802,16 +1821,24 @@ class _HomeScreenState extends State<HomeScreen> {
     return tr(context, count == 1 ? '1 tool' : '$count tools', '$count 个工具');
   }
 
-  Widget _searchBar(BuildContext context, HomeView view) {
-    final controller = _searchControllers[view]!;
+  Widget _searchBar(
+    BuildContext context,
+    HomeView view, {
+    TextEditingController? controller,
+    FocusNode? focusNode,
+    String? name,
+  }) {
+    final fieldController = controller ?? _searchControllers[view]!;
+    final fieldFocus = focusNode ?? _searchFocusNodes[view];
+    final fieldName = name ?? view.name;
     return TextField(
-      key: ValueKey('home-search-${view.name}'),
-      controller: controller,
-      focusNode: _searchFocusNodes[view],
+      key: ValueKey('home-search-$fieldName'),
+      controller: fieldController,
+      focusNode: fieldFocus,
       textInputAction: TextInputAction.search,
       onChanged: (_) => setState(() {}),
-      onSubmitted: (_) => _searchFocusNodes[view]?.unfocus(),
-      onTapOutside: (_) => _searchFocusNodes[view]?.unfocus(),
+      onSubmitted: (_) => fieldFocus?.unfocus(),
+      onTapOutside: (_) => fieldFocus?.unfocus(),
       decoration: InputDecoration(
         prefixIcon: const Icon(Icons.search, size: 20),
         prefixIconConstraints: const BoxConstraints(
@@ -1819,13 +1846,13 @@ class _HomeScreenState extends State<HomeScreen> {
           minHeight: 36,
         ),
         hintText: tr(context, 'Search tools', '搜索工具'),
-        suffixIcon: controller.text.isEmpty
+        suffixIcon: fieldController.text.isEmpty
             ? null
             : IconButton(
-                key: ValueKey('home-search-clear-${view.name}'),
+                key: ValueKey('home-search-clear-$fieldName'),
                 tooltip: tr(context, 'Clear search', '清除搜索'),
                 onPressed: () {
-                  controller.clear();
+                  fieldController.clear();
                   setState(() {});
                 },
                 icon: const Icon(Icons.close, size: 18),
@@ -2093,6 +2120,114 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _minimalSectionTitle(
+    BuildContext context,
+    String title,
+    IconData icon,
+  ) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: theme.colorScheme.primary),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _minimalEmpty(BuildContext context) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 620),
+      child: _HomeEmptyState(
+        key: const ValueKey('home-minimal-empty'),
+        icon: Icons.auto_awesome_outlined,
+        title: tr(context, 'Your minimal home is empty', '极简首页还是空的'),
+        subtitle: tr(
+          context,
+          'Search above to find any tool, or star a tool to keep it here.',
+          '在顶部搜索任意工具，或给工具加星标把它留在这里。',
+        ),
+      ),
+    ),
+  );
+
+  Widget _minimalView(
+    BuildContext context,
+    AppSettings settings, {
+    required bool wide,
+  }) {
+    final controller = _minimalSearchController;
+    final searching = controller.text.trim().isNotEmpty;
+    final results = _filterTools(controller.text, toolInfos);
+    final favorites = [
+      for (final tool in toolInfos)
+        if (settings.favoriteToolIds.contains(tool.id)) tool,
+    ];
+    final favoriteIds = {for (final tool in favorites) tool.id};
+    final recent = [
+      for (final id in settings.recentToolIds)
+        if (!favoriteIds.contains(id)) ?toolInfoById(id),
+    ];
+    final expanded = !wide && _minimalSearchFocusNode.hasFocus;
+    return ListView(
+      key: const PageStorageKey('home-minimal'),
+      padding: EdgeInsets.fromLTRB(wide ? 32 : 20, 20, wide ? 32 : 20, 36),
+      children: [
+        _HomeSectionHeader(
+          title: tr(context, 'Pockito', '妙物袋'),
+          onTitleLongPress: () => openVault(context),
+          subtitle: searching
+              ? _toolCount(context, results.length, searching: true)
+              : tr(context, 'Favorites and recent tools', '收藏与最近使用'),
+          action: _searchBar(
+            context,
+            HomeView.all,
+            controller: controller,
+            focusNode: _minimalSearchFocusNode,
+            name: 'minimal',
+          ),
+          trailing: _settingsButton(context),
+          expanded: expanded,
+          compactActionWidth: wide ? 320 : 172,
+        ),
+        const SizedBox(height: 16),
+        if (searching) ...[
+          if (results.isEmpty)
+            _searchEmpty(context, HomeView.all, controller)
+          else
+            _toolGrid(context, settings, results, wide: wide),
+        ] else if (favorites.isEmpty && recent.isEmpty)
+          _minimalEmpty(context)
+        else ...[
+          if (favorites.isNotEmpty) ...[
+            _minimalSectionTitle(
+              context,
+              tr(context, 'Favorites', '收藏'),
+              Icons.star,
+            ),
+            const SizedBox(height: 10),
+            _toolGrid(context, settings, favorites, wide: wide),
+            if (recent.isNotEmpty) const SizedBox(height: 24),
+          ],
+          if (recent.isNotEmpty) ...[
+            _minimalSectionTitle(
+              context,
+              tr(context, 'Recent', '最近'),
+              Icons.history,
+            ),
+            const SizedBox(height: 10),
+            _toolGrid(context, settings, recent, wide: wide),
+          ],
+        ],
+      ],
+    );
+  }
+
   Widget _viewFor(
     BuildContext context,
     AppSettings settings,
@@ -2161,10 +2296,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final currentView = visibleViews.contains(settings.homeTab)
         ? settings.homeTab
         : visibleViews.first;
-    final showNavigation = visibleViews.length > 1;
+    final minimal = settings.minimalMode;
+    final showNavigation = !minimal && visibleViews.length > 1;
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 900;
+        final content = minimal
+            ? _minimalView(context, settings, wide: wide)
+            : _viewFor(context, settings, currentView, wide: wide);
         return Scaffold(
           body: SafeArea(
             top: true,
@@ -2184,12 +2323,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ? 720
                                   : 1120,
                             ),
-                            child: _viewFor(
-                              context,
-                              settings,
-                              currentView,
-                              wide: wide,
-                            ),
+                            child: content,
                           ),
                         ),
                       ),
@@ -2198,12 +2332,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 : Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 720),
-                      child: _viewFor(
-                        context,
-                        settings,
-                        currentView,
-                        wide: false,
-                      ),
+                      child: content,
                     ),
                   ),
           ),
@@ -2702,45 +2831,85 @@ class SettingsView extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          tr(
-            context,
-            'Choose which views appear in the home navigation.',
-            '选择首页导航中显示的界面。',
-          ),
+          settings.minimalMode
+              ? tr(
+                  context,
+                  'Minimal mode keeps the home on a single page.',
+                  '极简模式把首页收成一个页面。',
+                )
+              : tr(
+                  context,
+                  'Choose which views appear in the home navigation.',
+                  '选择首页导航中显示的界面。',
+                ),
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 4),
         SwitchListTile(
-          key: const ValueKey('home-remember-tab'),
+          key: const ValueKey('home-minimal-mode'),
           contentPadding: EdgeInsets.zero,
-          secondary: const Icon(Icons.restore),
-          title: Text(tr(context, 'Remember last view', '记住上次界面')),
+          secondary: const Icon(Icons.view_agenda_outlined),
+          title: Text(tr(context, 'Minimal mode', '极简模式')),
           subtitle: Text(
             tr(
               context,
-              'Open the app on the last view you used.',
-              '下次打开时回到上次使用的界面。',
+              'Hide the tab navigation and merge Favorites and Recent into '
+                  'one page. Search still finds every tool.',
+              '隐藏界面导航，把收藏与最近合并到同一页面；搜索仍可找到全部工具。',
             ),
           ),
-          value: settings.rememberHomeTab,
+          value: settings.minimalMode,
           onChanged: (value) {
-            unawaited(settings.setRememberHomeTab(value));
+            unawaited(settings.setMinimalMode(value));
           },
         ),
-        for (final view in HomeView.values) _HomeViewSwitch(view: view),
-        const SizedBox(height: 6),
-        Text(
-          tr(
-            context,
-            'At least one of Recent, Favorites and All must stay visible.',
-            '最近、收藏、全部至少保留一个。',
+        if (settings.minimalMode)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              tr(
+                context,
+                'Turn off minimal mode to configure the tab views below.',
+                '关闭极简模式后可继续配置下方界面。',
+              ),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          )
+        else ...[
+          SwitchListTile(
+            key: const ValueKey('home-remember-tab'),
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.restore),
+            title: Text(tr(context, 'Remember last view', '记住上次界面')),
+            subtitle: Text(
+              tr(
+                context,
+                'Open the app on the last view you used.',
+                '下次打开时回到上次使用的界面。',
+              ),
+            ),
+            value: settings.rememberHomeTab,
+            onChanged: (value) {
+              unawaited(settings.setRememberHomeTab(value));
+            },
           ),
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+          for (final view in HomeView.values) _HomeViewSwitch(view: view),
+          const SizedBox(height: 6),
+          Text(
+            tr(
+              context,
+              'At least one of Recent, Favorites and All must stay visible.',
+              '最近、收藏、全部至少保留一个。',
+            ),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
-        ),
+        ],
         const SizedBox(height: 20),
         const Divider(height: 1),
         const SizedBox(height: 18),
