@@ -53,6 +53,32 @@ enum LocaleMode { english, chinese, system }
 
 const int defaultThemeAccent = 0xff007c72;
 
+const String appVersion = '1.0';
+const String appRepositoryUrl = 'https://github.com/whynbnb/pockito';
+const String appLicenseName = 'MIT';
+const String appLicenseText = '''MIT License
+
+Copyright (c) 2026 whynbnb
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+''';
+
 class ThemeAccentPreset {
   const ThemeAccentPreset(
     this.id,
@@ -2778,6 +2804,20 @@ class _ThemeColorSwatch extends StatelessWidget {
   }
 }
 
+Future<void> showAppLicense(BuildContext context) => showDialog<void>(
+  context: context,
+  builder: (context) => AlertDialog(
+    title: Text(tr(context, 'MIT License', 'MIT 开源协议')),
+    content: const SingleChildScrollView(child: SelectableText(appLicenseText)),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: Text(tr(context, 'Close', '关闭')),
+      ),
+    ],
+  ),
+);
+
 class SettingsView extends StatelessWidget {
   const SettingsView({
     super.key,
@@ -2939,6 +2979,78 @@ class SettingsView extends StatelessWidget {
               label: Text(tr(context, 'Clear favorites', '清空收藏')),
             ),
           ],
+        ),
+        const SizedBox(height: 20),
+        const Divider(height: 1),
+        const SizedBox(height: 18),
+        Text(tr(context, 'About', '关于'), style: theme.textTheme.titleMedium),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Image.asset(
+                'assets/app_icon_256.png',
+                width: 56,
+                height: 56,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tr(context, 'Pockito', '妙物袋'),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    tr(context, 'Version $appVersion', '版本 $appVersion'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          tr(
+            context,
+            'A local collection of small tools with a hidden encrypted notes '
+                'vault.',
+            '一个完全本地的小工具集合，附带隐藏的加密笔记保险库。',
+          ),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 6),
+        ListTile(
+          key: const ValueKey('settings-license'),
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.description_outlined),
+          title: Text(tr(context, 'License', '开源协议')),
+          subtitle: const Text('$appLicenseName License'),
+          trailing: TextButton(
+            onPressed: () => unawaited(showAppLicense(context)),
+            child: Text(tr(context, 'View', '查看')),
+          ),
+        ),
+        ListTile(
+          key: const ValueKey('settings-source-code'),
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.code),
+          title: Text(tr(context, 'Source code', '开源地址')),
+          subtitle: const Text(appRepositoryUrl),
+          trailing: const Icon(Icons.open_in_new, size: 18),
+          onTap: () => unawaited(openToolUrl(context, appRepositoryUrl)),
         ),
       ],
     );

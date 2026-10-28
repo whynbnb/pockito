@@ -408,6 +408,46 @@ void main() {
     expect(cardRect.bottom - textRect.bottom, greaterThanOrEqualTo(12));
   });
 
+  testWidgets('shows the about section with version and license', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await pumpHome(tester, _MemoryPreferences(<String, String>{}));
+    await tapNav(tester, HomeView.settings);
+
+    final licenseTile = find.byKey(const ValueKey('settings-license'));
+    await tester.scrollUntilVisible(
+      licenseTile,
+      200.0,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Version 1.0'), findsOneWidget);
+    expect(find.text('MIT License'), findsOneWidget);
+    expect(find.byType(Image), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(of: licenseTile, matching: find.byType(TextButton)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Permission is hereby granted'), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+
+    final sourceTile = find.byKey(const ValueKey('settings-source-code'));
+    await tester.scrollUntilVisible(
+      sourceTile,
+      200.0,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('https://github.com/whynbnb/pockito'), findsOneWidget);
+  });
+
   testWidgets('changes the app accent from settings', (tester) async {
     tester.view.physicalSize = const Size(900, 1600);
     tester.view.devicePixelRatio = 1;

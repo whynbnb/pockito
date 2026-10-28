@@ -56,6 +56,10 @@ flutter run -d macos
 
 iOS / macOS 的原生插件通过 Swift Package Manager 集成。如果本机曾关闭该功能，先执行 `flutter config --enable-swift-package-manager`，否则 Flutter 会退回 CocoaPods 并生成 `Podfile`。Linux 播放音频需要系统已安装 ALSA、PulseAudio 或 PipeWire 运行时。
 
+## 开源协议
+
+本项目基于 [MIT License](LICENSE) 开源，源码地址：[https://github.com/whynbnb/pockito](https://github.com/whynbnb/pockito)。应用内「设置 → 关于」可查看当前版本（1.0）、开源协议全文与仓库链接。
+
 ## 致谢
 
 > 说明：本项目的代码由 LLM 辅助的 Vibe Coding 方式编写，以下开源项目**仅作为功能与交互上的参考，未参考其源代码**。相关许可证与出处列出以表达致意。
