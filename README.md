@@ -1,87 +1,145 @@
-# Pockito / 妙物袋
+> Vibe coded with DeepSeek V4.1 Flash 1017 / OpenCode
 
-一个面向 Android、iOS、Windows、macOS 和 Linux 的本地小工具集合与应用原型。应用启动后显示通用工具列表，密码生成器、`+1` 计数器等只是其中一项。连续长按顶部标题进入隐藏的私密笔记区域。
+<p align="center">
+  <img src="assets/app_icon_256.png" width="112" height="112" alt="Pockito app icon">
+</p>
 
-## 当前功能
+<h1 align="center">Pockito · 妙物袋</h1>
 
-- 通用入口：以列表形式展示所有可用小工具，便于持续扩展。
-- 密码生成器：8 到 64 位，可分别筛选小写、大写、数字和特殊字符。
-- 特殊需求：唯一字符、排除易混淆字符，均可独立开启；唯一字符默认关闭。
-- 自定义种子：支持输入文字，也支持采集鼠标移动和触摸 / 手势轨迹。
-- 结果操作：一键复制、字符类型彩色高亮、恢复初始设置。
-- 桌面宽屏下筛选项采用双列布局，窄屏自动切换为单列布局。
-- `+1` 计数器：为任意自定义事件创建计数器，支持加一、减一、设置当前值、归零、重命名和删除，并显示所有事件的总计。
-- 计数记录：每次变更都会记录时间、增减量和变更后的值，可在计数器的记录页查看或清除。
-- 计数器数据保存在应用支持目录下的 `tool_counters.json`（明文普适存储，不涉及密钥链）。
-- `游戏计数器`：面向桌游和聚会场景。每个场景（游戏）可定义多个共享的计数器类型（例如血量、魔法值、物理值），所有玩家共享这些类型；新建场景默认包含一个计数器类型和两名玩家，可直接设置玩家数量而无需逐个添加面板（推荐 1-8 个，更多时自动滚动）；每个玩家的面板顶部显示玩家标签，中间为数字与同一行的「加一 / 减一」按钮，底部为计数器类型标签，可点击或左右滑动切换；可在设置中为每个计数器类型设置默认的快速点击方向（+1 或 -1，点击数字时生效）和默认数值（新建玩家或归零时使用该初始值）；面板的「归零」「旋转 90°」操作收在面板菜单中；场景切换为低频操作，收在标题下拉菜单中（含「管理场景」入口），顶部另有一键「所有计数器清零」按钮；设置页只管理场景、类型和玩家，不绑定具体数值，数值与历史记录相互独立，历史记录在单独的界面查看；删除某个计数器类型会废弃其对应的历史记录；数据保存在应用支持目录下的 `tool_game_counters.json`。
-- `Basexx` 工具：在 Base16、Base32、Base58、Base64 和 Base64 URL 之间对文本进行编码和解码，支持互换输入输出与一键复制。
-- `2048` 小游戏：滑动方块合并相同数字，桌面端支持方向键 / WASD，触屏支持滑动，包含得分、最高分（本地保存）、胜利提示和结束重开。
-- `2048` 多模式：可选 3×3（目标 256）、4×4（目标 2048）、5×5（目标 4096）、6×6（目标 8192），每个尺寸独立记录最高分。
-- `2048` 自动游玩：内置 expectimax 启发式 bot，可一键开关观战，自动进行合并；游戏结束时自动停止。
-- `手电筒` 工具：先检测设备是否支持手电筒（不支持时给出提示，仅保留摩尔斯编码）；支持常亮与关闭、设备原生亮度级别（Android 13+ / iOS 14+）、SOS 快捷信号、固定周期闪烁，以及把字母 / 数字 / 中文（自动转拼音）转换成摩尔斯电码后发送。
-- `震动器` 工具：在带震动马达的手机或设备上按内置或自定义模式震动。内置轻点、双击、三连击、长震、心跳、SOS、涟漪、滴答、警报等模式（Android 需要 `VIBRATE` 权限，已内置声明）；提供「柔和 / 标准 / 哒哒哒」三种震动风格（每种风格下每次震动都对应一下：清脆风格会把每段震动收成一次短促轻击，而不是在单次震动里连响，iOS 映射到触感锐度，Android 在支持振幅控制时用振幅包络模拟）；也可输入以逗号分隔的「震动 / 停顿」毫秒时长自定义模式，支持循环播放；Android 8+ 及支持触感引擎的 iOS 设备可调节震动强度；桌面平台没有震动硬件，仅作模式预览。
-- `井字棋` 小游戏：支持人机和双人两种模式；人机模式可选择简单 / 普通 / 困难三档难度（困难为 minimax 最优策略），可自定义双方符号并本地保存，记录胜 / 平 / 负；开启「快速判定胜负」后，当一方形成无法阻挡的必胜局面、或双方都无法再连成一线（必然平局）时提前结束。
-- `频率发生器` 工具：生成 20 Hz 到 20 kHz 的纯音，可选正弦波、方波、三角波和锯齿波。频率用对数滑块、精确数值输入、±1 Hz / ±10 Hz 微调、÷2 / ×2 和常用预设共同调节，播放中可实时改变频率、波形与音量；顶部显示十二平均律音名与音分偏差、周期和波长。支持最多 4 个音调层叠加，每层可分配到双声道、左声道或右声道，因此可以让左右耳听到不同频率；叠加时会按声道自动分配增益，避免削波。自动扫频可为当前音层设置起始 / 结束频率、1–3600 秒的持续时间、线性或对数曲线，以及往返循环。100 Hz 预设带有一个医学信息标记，点击可查看关于缓解晕车的 2025 年研究说明、论文链接与使用注意。可设置 1 / 5 / 10 / 30 分钟或不限时的播放时长，界面会显示倒计时和进度，到时自动停止；应用切到后台或锁屏后音频会继续播放（Android 通过前台服务与播放通知保活，iOS 启用音频后台模式）。请从低音量开始，避免长时间大音量聆听；Linux 需要系统中存在 ALSA、PulseAudio 或 PipeWire 等音频运行时。
-- `扬声器排水` 工具：用 60–1000 Hz 的低频脉冲（默认 165 Hz、正弦波）帮助把扬声器开孔附近的水珠震出。可选轻柔 / 标准 / 强劲 / 快速四种节奏，也可单独调节发声与静音时长；支持 10 / 20 / 30 / 45 秒的自动停止时长、实时频率与音量调节。手机上可开启与音频脉冲同步的震动；桌面平台没有震动马达，仅播放音频。建议取下保护壳、把扬声器朝下放在干布上，音量从 60–70% 开始；不要用物体插入扬声器开孔，设备不具备防水能力、扬声器已损坏或进水严重时请勿使用。
-- `时钟` 工具：提供模拟圆形、数字翻页、二进制点阵、超大数字和 8 段码五种表盘，左右滑动、底部圆点或箭头切换；支持自动 / 竖屏 / 横屏三种布局：自动跟随设备或窗口方向，竖屏时翻页、二进制、超大数字与 8 段码改为上下排布，模拟表盘上下放置；横屏时改用左右 / 横向排布；也可在设置中强制指定。设置中可开启循环滑动、切换 12 / 24 小时制（默认跟随系统与语言），并分别调整：模拟表盘的尺寸、分针、秒针、数字时钟与日期；翻页时钟的尺寸、秒数与日期；二进制点阵的尺寸、秒数、标签、数字时间与日期；超大数字的日期与秒数；8 段码的尺寸、颜色、边框与边框宽度、内边距、外边距、秒数与日期。默认保持屏幕常亮（显示器图标，可一键关闭）；右上角调色盘图标可单独切换时钟的跟随应用 / 浅色 / 深色主题和 8 种强调色，仅影响时钟界面，不影响其他工具；可切换全屏（移动端隐藏系统栏，桌面端切换窗口全屏），全屏时轻点屏幕显示浮动控制条，按 Esc 或系统返回键退出全屏。设置面板支持各表盘单独重置与全部重置，设置保存在应用支持目录下的 `tool_clock.json`（明文偏好，与私密笔记无关）。
-- `世界时钟` 工具：机场翻页牌风格，一屏显示多个时区。每行用机械翻页数字显示当地时间，并配英文城市牌（三字代码、英文城市名、中文名与地区）；显示样式可选「文字」「翻页」「纯卡片」三种；翻页会把英文城市名的每个字母做成机械翻页卡片，纯卡片只保留翻页卡片，隐藏代码、小字、日期和描述。可搜索并添加 / 移除任意城市，支持 12 / 24 小时制、秒数、日期、UTC 时差、时区缩写和昼夜标记。时区使用 IANA 数据计算，包含夏令时；设置保存在应用支持目录下的 `tool_world_clock.json`。
-- 首页多界面：最近、收藏、全部、设置四个界面，默认显示「全部」。最近按打开时间排序，收藏可在工具卡片的星标上添加或取消；每个界面都可以在设置中显示或隐藏，设置界面关闭后通过页面标题右侧（搜索框右边）的图标进入；最近、收藏、全部至少保留一个，并可在设置中选择是否记住上次界面。最近、收藏、全部三个界面支持按中英文标题、描述、标签或工具 ID 搜索，搜索框位于页面标题右侧；移动端点击搜索框后会略微变长且不遮挡标题，失焦或提交后收起。清空最近和收藏的操作集中在设置界面中。桌面和横屏平板使用左侧导航栏与双列 / 三列工具网格，同一行工具卡片等高，工具描述最多两行、超出省略，窄屏使用底部导航与单列列表；「全部」界面的标题显示软件名，移动端不再额外显示应用栏，避免软件名重复出现。可开启「极简模式」：隐藏底部 / 侧边导航，设置收进标题行右侧的齿轮图标，收藏与最近合并在同一页面（收藏优先、不重复），不再有「全部」界面，但搜索仍会检索全部工具。最后选择的界面以及最近、收藏、极简模式开关保存在应用支持目录下的 `tool_prefs.json`。
-- `工具详细信息`：每个工具页面右上角固定提供信息按钮，打开后展示与首页一致的工具描述、适用范围、Android / iOS / macOS / Windows / Linux 的适配情况（支持 / 部分支持 / 不支持，并附平台说明）、2–5 个中英文标签（同时参与首页搜索）、版本（当前统一为 1.0）、发布日期与最后更新日期（按功能变更整理，界面调整不计入）、已知缺陷 / 使用限制，以及该工具的开源致谢（许可证徽章与可点击链接），没有致谢的工具在该区域显示说明。
-- 外层工具列表、解锁页和内层笔记共享主题与语言设置，支持浅色 / 深色、跟随系统主题、12 种主题强调色、Android 12+ 的 Material You 壁纸取色、English / 中文和跟随系统语言，默认跟随系统，并会保存到应用支持目录下的 `tool_prefs.json`。
-- 隐藏入口：长按首页标题区域（桌面端为「最近 / 收藏 / 全部 / 设置」页面大标题）或密码生成器标题。
+<p align="center">
+  English · <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-- 首次使用创建解锁方式：九宫格连线图案或数字 PIN（二者择一）。
-- 使用所设置的图案或 PIN 解锁，不支持生物识别 / 恢复密钥等额外机制。
-- 私密笔记支持标题、文字和图片附件。
-- 数据保存在应用支持目录下的单个 `pockito-cache.pvlt` 文件中。
+<p align="center">
+  <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" alt="Flutter"></a>
+  <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-3.x-0175C2?logo=dart&logoColor=white" alt="Dart"></a>
+  <img src="https://img.shields.io/badge/Android-supported-3DDC84?logo=android&logoColor=white" alt="Android">
+  <img src="https://img.shields.io/badge/iOS-supported-000000?logo=apple&logoColor=white" alt="iOS">
+  <img src="https://img.shields.io/badge/macOS-supported-000000?logo=apple&logoColor=white" alt="macOS">
+  <img src="https://img.shields.io/badge/Windows-supported-0078D6?logo=windows&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/Linux-supported-FCC624?logo=linux&logoColor=black" alt="Linux">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/version-1.0-blue" alt="Version 1.0">
+</p>
 
-## 存储和安全边界
+Pockito is a local-first collection of small tools for Android, iOS, macOS, Windows and Linux, with a hidden encrypted notes vault. Twelve utilities live behind one searchable home screen; everything runs on the device, with no account, cloud sync or telemetry.
 
-库文件不是 SQLite，而是自定义版本化 envelope。笔记 payload 使用 AES-256-GCM 加密，加密密钥直接由九宫格图案或 PIN 通过 PBKDF2-HMAC-SHA256（210,000 次迭代）派生；解开方式为在文件内保存随机 salt，解锁时用相同凭据重新派生密钥，MAC 校验失败即认为凭据错误。没有恢复密钥、生物识别和系统安全存储依赖。
+## Screenshots
 
-写入先完成 `.writing` 文件并 flush，再将旧文件移到 `.backup`，最后替换主文件。启动时会识别并恢复有效的中断文件，之后清理临时文件。该机制覆盖应用崩溃和大多数进程中断场景，但不能替代文件系统、磁盘或硬件损坏时的备份策略。
+<table>
+  <tr>
+    <td align="center"><img src="docs/preview-desktop-en.png" width="100%" alt="Desktop home with a navigation rail and tool grid"><br><sub>Desktop</sub></td>
+    <td align="center"><img src="docs/preview-mobile-en.png" width="100%" alt="Mobile home with bottom navigation and a single-column list"><br><sub>Mobile</sub></td>
+    <td align="center"><img src="docs/preview-minimal-en.png" width="100%" alt="Minimal mode with favorites and recent tools on one page"><br><sub>Minimal mode</sub></td>
+  </tr>
+</table>
 
-## 重要限制
+## Highlights
 
-这是可运行的基础版本，不应直接作为经过安全审计的密码管理器发布。图案与 PIN 的熵有限，请勿用于保护高度敏感的信息；一旦忘记图案或 PIN，笔记将无法解密。
+- **12 tools in one app** — passwords, counters, board-game scoring, encoding, games, light, haptics, audio, clock and world clock.
+- **Local-first** — tools, preferences and notes stay on the device. Nothing is uploaded.
+- **Search everything** — search by title, description, tag or tool ID, with bilingual results.
+- **Minimal mode** — hide the tab bar, merge Favorites and Recent into one page and keep search across all tools.
+- **Tool details** — every tool has a details page with scope, platform support, tags, version, dates and known limitations.
+- **Hidden vault** — a long press on a page title opens an encrypted notes area protected by a pattern or PIN.
 
-## 运行
+## Tools
+
+- **Password Generator** — generate 8–64 character passwords with lowercase, uppercase, number and symbol filters. Unique-character and look-alike exclusion options can be toggled independently; custom seeds can be typed or captured from mouse and touch gestures. Results can be copied in one tap with coloured character highlighting, and all filters can be reset.
+- **+1 Counter** — create counters for any event, then increment, decrement, set the current value, reset, rename or delete them. A total is shown for all counters, and every change is recorded with its time, delta and resulting value in a per-counter history that can be cleared.
+- **Game Counter** — score board games and parties. Scenes define shared counter types (health, magic, points…) used by every player; a new scene starts with one counter type and two players, and the player count can be adjusted directly. Each counter type can define the default tap direction (+1/−1) and starting value. Reset and rotate live in each panel menu, scene switching is in the title menu, and a single action resets all counters. Settings manage scenes, types and players only; values and history stay separate, and history is cleared with a counter type.
+- **Basexx** — encode and decode text between Base16, Base32, Base58, Base64 and Base64 URL, with input/output swapping and one-tap copy.
+- **2048** — the classic sliding-tile game with swipe and arrow-key/WASD input, score, locally saved best scores, a win prompt and quick restart. Boards come in 3×3 (target 256), 4×4 (2048), 5×5 (4096) and 6×6 (8192) sizes with independent records. An expectimax auto-play bot can be watched and stops when the game ends.
+- **Tic-Tac-Toe** — play against a bot (easy, normal or hard with minimax) or with a second player on the same device. Custom marks are saved locally, and wins, draws and losses are counted. Quick result detection ends a game early when the outcome is already decided.
+- **Flashlight** — detects torch support first, then offers steady on/off, native brightness levels (Android 13+ / iOS 14+), SOS, timed blinking and Morse code. Letters, digits and Chinese text (converted to pinyin) can be sent as Morse. Desktop platforms fall back to Morse code only.
+- **Vibrator** — play built-in or custom vibration patterns, including tap, double tap, triple tap, long buzz, heartbeat, SOS, ripple, tick and alarm. Three styles (soft, standard, crisp) shape each pulse; custom patterns accept comma-separated on/off durations in milliseconds and can loop. Amplitude is adjustable on supported hardware, and desktop platforms preview patterns without a motor.
+- **Frequency Generator** — generate pure tones from 20 Hz to 20 kHz as sine, square, triangle or sawtooth waves. Frequency can be set with a logarithmic slider, exact input, ±1/±10 Hz steps, ÷2/×2 and presets, and changed live during playback along with waveform and volume. The header shows the equal-tempered note, cent offset, period and wavelength. Up to four layers can be panned left, right or centre with automatic gain staging, and each layer supports a 1–3600 second linear or logarithmic sweep with loop. The 100 Hz preset includes a motion-sickness note with the 2025 research reference, playback can be timed (1/5/10/30 minutes or unlimited) with a countdown, and audio continues in the background until stopped. Start at a low volume.
+- **Speaker Cleaner** — pulse 60–1000 Hz tones (165 Hz sine by default) to help shake water out of a speaker opening. Four rhythms (gentle, standard, strong, fast), separate tone and silence durations, 10/20/30/45 second auto-stop, live frequency and volume, and optional vibration synced to the pulses on phones. Desktop platforms play audio only. Remove the case, face the speaker down on a dry cloth, start around 60–70% volume and never insert anything into the speaker grille.
+- **Clock** — five faces (analog, flip, binary, big digits and 8-segment), switched by swiping, the bottom dots or the arrows. Layouts follow the device or window automatically, or can be forced to portrait or landscape. Settings cover looping, 12/24-hour time (system/language by default) and per-face options such as size, hands, seconds, dates, labels, colours, borders and spacing. The screen stays awake by default from a monitor icon, the palette icon switches the clock-only appearance (app/light/dark) and 8 accents without affecting other tools, and fullscreen hides the system bars or expands the desktop window. Each face can be reset individually or all at once.
+- **World Clock** — an airport flip-board for several time zones. Each row shows local time on mechanical digits with an English city sign (airport code, city, Chinese name and region). Text, flip and cards-only modes are available; flip animates each letter of the city name and cards-only hides codes, small text, dates and descriptions. Cities can be searched, added and removed, with 12/24-hour time, seconds, dates, UTC offsets, time-zone abbreviations and day/night markers. Times use the IANA database, including daylight saving time.
+
+## Home and navigation
+
+- **Views** — Recent, Favorites, All and Settings. Recent is ordered by open time; favorites are toggled with the star on any tool card. Every view can be shown or hidden in Settings, and at least one of Recent, Favorites and All must stay visible. Settings can be hidden too; the gear beside the search field opens it when hidden.
+- **Remember last view** — optional. When disabled, the app starts on All (or the first available tool view).
+- **Search** — searches titles, descriptions, tags and tool IDs in both languages. The field sits inline with the page title, expands slightly on focus on mobile without covering the title, and clears on blur or submit. Clear-recent and clear-favorites actions live in Settings.
+- **Responsive layout** — desktop and landscape tablets use a navigation rail, a 1120 px content area and a two- or three-column tool grid. Cards in the same row share the tallest height, descriptions are capped at two lines with an ellipsis, and short content is centred. Narrow screens use bottom navigation and a single-column list. The All view heading is the app name, and the mobile home has no extra app bar above it.
+- **Minimal mode** — hides the tab navigation, folds Settings into the gear beside search, merges Favorites and Recent into one page (favorites first, no duplicates), removes the All view and keeps search across every tool. An empty state appears when there is no history yet.
+
+## Tool details
+
+Every tool page has an info button in the top-right corner. The details page shows the same description as the home card, what the tool is best for, per-platform support for Android, iOS, macOS, Windows and Linux (supported, partial or not available, with platform notes), 2–5 bilingual tags that also participate in search, the version (currently 1.0), release and last-updated dates based on feature changes, known limitations, and the tool's open-source acknowledgements with license badges and clickable links.
+
+## Appearance and language
+
+The tool list, unlock screen and notes share one theme and language setting: light, dark or system; 12 accent colours; Android 12+ Material You wallpaper colours; English, Chinese or system language. Settings are saved to `tool_prefs.json`. The clock additionally has its own light/dark/theme-follow and accent palette.
+
+## Hidden notes vault
+
+- Long-press a page title on the home screen, or the Password Generator title, to open the vault.
+- On first use, create either a 3×3 pattern or a numeric PIN. There is no biometric unlock and no recovery key.
+- Notes support a title, body text and image attachments.
+- The vault is stored in a single `pockito-cache.pvlt` file in the app support directory.
+
+## Data on device
+
+| File | Contents |
+| --- | --- |
+| `tool_prefs.json` | Theme, language, accent colour, home views, recent/favorites, minimal mode |
+| `tool_counters.json` | +1 counters and their history |
+| `tool_game_counters.json` | Game counter scenes, types, players and history |
+| `tool_clock.json` | Clock faces, layout, wake lock and appearance |
+| `tool_world_clock.json` | World clock cities and display options |
+| `pockito-cache.pvlt` | Encrypted notes vault |
+
+All files live in the app support directory and use plain preference storage unless they belong to the vault.
+
+## Security boundaries
+
+The vault is not SQLite but a custom versioned envelope. Note payloads are encrypted with AES-256-GCM; the key is derived from the pattern or PIN with PBKDF2-HMAC-SHA256 (210,000 iterations) and a random salt stored in the file. Unlocking re-derives the key with the same credential, and a MAC failure means the credential is wrong. Writes finish a `.writing` file and flush it before moving the previous file to `.backup` and replacing the main file; interrupted writes are recovered on launch. This covers app crashes and most process interruptions, but it is not a substitute for filesystem, disk or hardware backups.
+
+This is a working foundation, not an audited password manager. Pattern and PIN entropy is limited, so do not use it for highly sensitive data. If the pattern or PIN is forgotten, the notes cannot be decrypted.
+
+## Getting started
+
+Requirements: a Flutter SDK with Dart `^3.13.2`. The project targets Android, iOS, Windows, macOS and Linux; Web is not a target.
 
 ```bash
 flutter pub get
 flutter run -d macos
 ```
 
-使用 `flutter devices` 查看已配置的 Android、iOS、Windows、macOS 和 Linux 设备。Web 平台没有加入工程目标。
+Use `flutter devices` to list configured Android, iOS, Windows, macOS and Linux devices.
 
-iOS / macOS 的原生插件通过 Swift Package Manager 集成。如果本机曾关闭该功能，先执行 `flutter config --enable-swift-package-manager`，否则 Flutter 会退回 CocoaPods 并生成 `Podfile`。Linux 播放音频需要系统已安装 ALSA、PulseAudio 或 PipeWire 运行时。
+On iOS and macOS the native plugins use Swift Package Manager. If it was disabled on the machine, run `flutter config --enable-swift-package-manager` first; otherwise Flutter falls back to CocoaPods and generates a `Podfile`. Audio on Linux needs ALSA, PulseAudio or PipeWire at runtime.
 
-## 开源协议
+```bash
+flutter analyze
+flutter test
 
-本项目基于 [MIT License](LICENSE) 开源，源码地址：[https://github.com/whynbnb/pockito](https://github.com/whynbnb/pockito)。应用内「设置 → 关于」可查看当前版本（1.0）、开源协议全文与仓库链接。
+flutter build macos --debug
+flutter build ios --debug --no-codesign
+flutter build apk --release --split-per-abi
+```
 
-## 致谢
+The arm64 release APK is written to `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`.
 
-> 说明：本项目的代码由 LLM 辅助的 Vibe Coding 方式编写，以下开源项目**仅作为功能与交互上的参考，未参考其源代码**。相关许可证与出处列出以表达致意。
+## Acknowledgements
 
-应用内的致谢使用统一接口 `ToolInfo`（含 `ToolCredit` 列表与平台说明），每个小工具都在 `toolInfos` 注册表中实现该接口；没有相关信息的工具其 `hasAcknowledgements` 为 `false`（Basexx、2048、扬声器排水与时钟），详细信息页的致谢区域会说明这一点。所有工具页面右上角都有统一的信息按钮，致谢与其他详细信息一起显示在工具详细信息页面中，致谢链接可点击（`url_launcher`），开源协议以徽章样式突出显示。
+The code was written with LLM-assisted Vibe Coding. The projects below are references for features and interaction only; their source code was not used. Their licenses and links are listed as credit.
 
-密码生成器的界面与功能灵感来自 Vectura Games 的开源项目 [Password Generator](https://gitlab.com/vecturagames/passwordgenerator)（Apache License 2.0）。可在密码生成器页面的详细信息中查看该致谢。
+- [Password Generator](https://gitlab.com/vecturagames/passwordgenerator) by Vectura Games — Apache License 2.0. Inspiration for the password generator.
+- [Counters](https://gitlab.com/neil3000/counters) by Neïl Rahmouni — GNU Affero General Public License v3.0. Inspiration for the +1 counter.
+- [gamecounter](https://github.com/multun/gamecounter) by multun — GNU General Public License v3.0. Inspiration for the game counter.
+- [Dooz](https://github.com/yamin8000/Dooz) by yamin8000 — GNU General Public License v3.0. Inspiration for Tic-Tac-Toe.
+- [FlashDim](https://github.com/cyb3rko/flashdim) by cyb3rko — Apache License 2.0. Inspiration for the flashlight.
+- [Vibrator](https://github.com/xiaofeidev/Vibrator) by xiaofeidev — Apache License 2.0. Inspiration for the vibrator.
+- [MotionEaseTune](https://github.com/BHznJNs/MotionEaseTune) by BHznJNs — GNU General Public License v3.0. Inspiration for the 100 Hz motion-sickness note.
 
-井字棋小游戏的界面与思路灵感来自 yamin8000 的开源项目 [Dooz](https://github.com/yamin8000/Dooz)（GNU General Public License v3.0）。可在井字棋页面的详细信息中查看该致谢。
+Runtime dependencies: [flutter_soloud](https://github.com/alnitak/flutter_soloud) (MIT, includes SoLoud and miniaudio; built with `no_xiph_libs`, so no Ogg/Vorbis/Opus/FLAC decoders are bundled), [wakelock_plus](https://pub.dev/packages/wakelock_plus) (BSD 3-Clause), [window_manager](https://pub.dev/packages/window_manager) (MIT), [timezone](https://pub.dev/packages/timezone) (BSD 3-Clause) and [dynamic_color](https://pub.dev/packages/dynamic_color) (BSD 3-Clause). In-app acknowledgements are shown on each tool's details page.
 
-手电筒工具的界面与思路灵感来自 cyb3rko 的开源项目 [FlashDim](https://github.com/cyb3rko/flashdim)（Apache License 2.0）。可在手电筒页面的详细信息中查看该致谢。
+## License
 
-+1 计数器的界面与思路灵感来自 Neïl Rahmouni 的开源项目 [Counters](https://gitlab.com/neil3000/counters)（GNU Affero General Public License v3.0）。可在 +1 计数器页面的详细信息中查看该致谢。
+Pockito is released under the [MIT License](LICENSE).
 
-游戏计数器工具的界面与思路灵感来自 multun 的开源项目 [gamecounter](https://github.com/multun/gamecounter)（GNU General Public License v3.0）。可在游戏计数器页面的详细信息中查看该致谢。
-
-震动器工具的界面与思路灵感来自 xiaofeidev 的开源项目 [Vibrator](https://github.com/xiaofeidev/Vibrator)（Apache License 2.0）。可在震动器页面的详细信息中查看该致谢。
-
-频率发生器中的 100 Hz 缓解晕车说明灵感来自 BHznJNs 的开源项目 [MotionEaseTune](https://github.com/BHznJNs/MotionEaseTune)（GNU General Public License v3.0），可在频率发生器页面的详细信息中查看该致谢。其音频输出直接使用运行时依赖 [flutter_soloud](https://github.com/alnitak/flutter_soloud)（MIT License，内含 SoLoud 与 miniaudio 引擎），覆盖 Android、iOS、Windows、macOS 和 Linux；应用启用了 `no_xiph_libs`，因此不会打包 Ogg / Vorbis / Opus / FLAC 解码库。
-
-时钟工具的屏幕常亮使用运行时依赖 [wakelock_plus](https://pub.dev/packages/wakelock_plus)（BSD 3-Clause License），桌面窗口全屏使用 [window_manager](https://pub.dev/packages/window_manager)（MIT License）；两者的 macOS 插件均提供 Swift Package Manager 支持。
-
-世界时钟使用运行时依赖 [timezone](https://pub.dev/packages/timezone)（BSD 3-Clause License）计算包含夏令时的当地时间；它是纯 Dart 实现，不增加原生插件。
-
-主题强调色和 Material You 取色使用运行时依赖 [dynamic_color](https://pub.dev/packages/dynamic_color)（BSD 3-Clause License）；Android 12+ 使用系统壁纸取色，其他平台使用手动选择的强调色。
+Source code: [github.com/whynbnb/pockito](https://github.com/whynbnb/pockito). The same license and repository link are available in the app at **Settings → About**, together with the version (1.0) and the full license text.
